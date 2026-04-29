@@ -213,12 +213,12 @@ class EXIFilerService : Service() {
         Log.d(TAG, "-scanDownloads()")
     }
 
-    private suspend fun processFile(uri: Uri, filename: String, uriKey: String) {
+    private suspend fun processFile(uri: Uri, filename: String, uriKey: String): Boolean {
         Log.d(TAG, "processFile: $filename ($uri)")
-        try {
+        return try {
             val inputStream = contentResolver.openInputStream(uri) ?: run {
                 Log.w(TAG, "processFile: openInputStream returned null for $filename")
-                return
+                return false
             }
             val result = inputStream.use { stream ->
                 MetadataDetector.detect(stream.source().buffer(), filename)
@@ -242,15 +242,19 @@ class EXIFilerService : Service() {
                         "$timestamp | $filename | Downloads → $targetFolder"
                     )
                     Log.i(TAG, "processFile: moved $filename to $targetFolder")
+                    true
                 } else {
                     Log.e(TAG, "processFile: move failed for $filename")
+                    false
                 }
             } else {
                 // Mark as processed so we don't re-scan it on every observer callback
                 processedUris[uriKey] = Unit
+                false
             }
         } catch (e: Exception) {
             Log.e(TAG, "processFile: error processing $filename", e)
+            false
         }
     }
 }
