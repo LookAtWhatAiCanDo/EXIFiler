@@ -157,7 +157,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "Monitor Downloads for Meta Glasses files",
+                        text = "Monitor Downloads for Meta AI Glasses files",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
