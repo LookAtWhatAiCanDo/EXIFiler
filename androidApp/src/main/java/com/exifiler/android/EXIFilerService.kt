@@ -188,6 +188,7 @@ class EXIFilerService : Service() {
         Log.d(TAG, "scanDownloads: ${candidates.size} total candidate(s) across all collections")
 
         var newCount = 0
+        var matchCount = 0
         for ((fileUri, name) in candidates) {
             val uriKey = fileUri.toString()
             if (uriKey in processedUris) {
@@ -196,10 +197,19 @@ class EXIFilerService : Service() {
             }
             newCount++
             Log.d(TAG, "scanDownloads: processing $name ($fileUri)")
-            processFile(fileUri, name, uriKey)
+            if (processFile(fileUri, name, uriKey)) matchCount++
         }
 
-        Log.i(TAG, "scanDownloads: ${candidates.size} candidate(s) found, $newCount new file(s) processed")
+        Log.i(TAG, "scanDownloads: ${candidates.size} candidate(s) found, $newCount new, $matchCount matched")
+
+        // Surface a scan-summary entry in the UI when files were found but none matched,
+        // so the user can confirm the service is actively scanning.
+        if (newCount > 0 && matchCount == 0) {
+            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            preferencesManager.addActivityLogEntry(
+                "$timestamp | Scan: $newCount file(s) checked — 0 matched Meta Glasses criteria"
+            )
+        }
         Log.d(TAG, "-scanDownloads()")
     }
 
