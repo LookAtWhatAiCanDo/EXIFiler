@@ -34,11 +34,12 @@ import java.util.Locale
 class EXIFilerService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private lateinit var downloadsObserver: ContentObserver
+    private val contentObservers = mutableListOf<ContentObserver>()
     private lateinit var preferencesManager: AppPreferencesManager
     private val scanMutex = Mutex()
-    private val processedUris = object : LinkedHashMap<Long, Unit>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: Map.Entry<Long, Unit>): Boolean = size > 500
+    // Keyed by content URI string (not raw ID) to avoid ID collisions across MediaStore collections.
+    private val processedUris = object : LinkedHashMap<String, Unit>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<String, Unit>): Boolean = size > 500
     }
 
     companion object {
@@ -63,7 +64,7 @@ class EXIFilerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        contentResolver.unregisterContentObserver(downloadsObserver)
+        contentObservers.forEach { contentResolver.unregisterContentObserver(it) }
         serviceScope.cancel()
         Log.i(TAG, "EXIFilerService stopped")
         super.onDestroy()
@@ -97,84 +98,110 @@ class EXIFilerService : Service() {
     }
 
     private fun registerDownloadsObserver() {
-        val downloadsUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        downloadsObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean, uri: Uri?) {
-                // Skip if a scan is already in progress (coalesce rapid notifications)
-                if (scanMutex.isLocked) return
-                serviceScope.launch {
-                    scanDownloads()
+        // Watch all three collections: some devices index Download-folder media files under
+        // Images/Video rather than Downloads, so we need observers on all three.
+        val handler = Handler(Looper.getMainLooper())
+        val observedUris = listOf(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        )
+        observedUris.forEach { collectionUri ->
+            val observer = object : ContentObserver(handler) {
+                override fun onChange(selfChange: Boolean, uri: Uri?) {
+                    // Skip if a scan is already in progress (coalesce rapid notifications)
+                    if (scanMutex.isLocked) return
+                    serviceScope.launch { scanDownloads() }
                 }
             }
+            contentResolver.registerContentObserver(collectionUri, true, observer)
+            contentObservers.add(observer)
         }
-        contentResolver.registerContentObserver(downloadsUri, true, downloadsObserver)
         // Perform initial scan
         serviceScope.launch { scanDownloads() }
     }
 
     private suspend fun scanDownloads() = scanMutex.withLock {
         Log.d(TAG, "+scanDownloads()")
-        val projection = arrayOf(
-            MediaStore.Downloads._ID,
-            MediaStore.Downloads.DISPLAY_NAME,
-            MediaStore.Downloads.MIME_TYPE,
-            MediaStore.Downloads.DATE_ADDED
-        )
-        // Match by MIME type OR by filename extension so that files whose MIME_TYPE column is
-        // null or set incorrectly (e.g. transferred via USB/ADB) are still picked up.
-        // Note: LIKE with leading wildcards cannot use an index, but this is unavoidable for
-        // suffix extension matching and the Downloads table is typically small.
-        val selection = "(${MediaStore.Downloads.MIME_TYPE} IN (?, ?, ?, ?, ?)) " +
-            "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
-            "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
-            "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE)"
-        val selectionArgs = arrayOf(
-            "image/jpeg", "image/jpg", "image/pjpeg", "video/mp4", "video/quicktime",
-            "%.jpg", "%.jpeg", "%.mp4"
-        )
-        val sortOrder = "${MediaStore.Downloads.DATE_ADDED} DESC"
 
-        val cursor = contentResolver.query(
+        data class FileEntry(val uri: Uri, val name: String)
+        val candidates = mutableListOf<FileEntry>()
+
+        fun queryCollection(
+            collectionUri: Uri,
+            idColumn: String,
+            nameColumn: String,
+            selection: String?,
+            selectionArgs: Array<String>?
+        ) {
+            val projection = arrayOf(idColumn, nameColumn)
+            contentResolver.query(collectionUri, projection, selection, selectionArgs, null)
+                ?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(idColumn)
+                    val nameCol = cursor.getColumnIndexOrThrow(nameColumn)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val name = cursor.getString(nameCol) ?: continue
+                        candidates.add(FileEntry(ContentUris.withAppendedId(collectionUri, id), name))
+                    }
+                    Log.d(TAG, "scanDownloads: $collectionUri → ${cursor.count} row(s)")
+                } ?: Log.e(TAG, "scanDownloads: query returned null for $collectionUri")
+        }
+
+        // 1. MediaStore.Downloads — files placed in Downloads by download manager / apps.
+        //    Filter by MIME type or extension since Downloads can contain any file type.
+        queryCollection(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            projection, selection, selectionArgs, sortOrder
+            MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME,
+            selection = "(${MediaStore.Downloads.MIME_TYPE} IN (?,?,?,?,?)) " +
+                "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
+                "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
+                "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE)",
+            selectionArgs = arrayOf(
+                "image/jpeg", "image/jpg", "image/pjpeg", "video/mp4", "video/quicktime",
+                "%.jpg", "%.jpeg", "%.mp4"
+            )
         )
-        if (cursor == null) {
-            Log.e(TAG, "scanDownloads: contentResolver.query returned null")
-            return@withLock
-        }
-        cursor.use {
-            val total = cursor.count
-            Log.d(TAG, "scanDownloads: query returned $total candidate file(s)")
 
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
-            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.MIME_TYPE)
+        // 2. MediaStore.Images — JPEG files in the Download folder.
+        //    On many devices, media files transferred via USB/cable or saved by other apps are
+        //    indexed here (not in Downloads) even when physically located in Download/.
+        queryCollection(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME,
+            selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?",
+            selectionArgs = arrayOf("Download%")
+        )
 
-            var newCount = 0
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val name = cursor.getString(nameCol) ?: continue
-                val mime = cursor.getString(mimeCol) ?: "<null>"
+        // 3. MediaStore.Video — MP4/MOV files in the Download folder (same reasoning as Images).
+        queryCollection(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME,
+            selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ? AND " +
+                "((${MediaStore.Video.Media.MIME_TYPE} IN (?,?)) " +
+                "OR (${MediaStore.Video.Media.DISPLAY_NAME} LIKE ? COLLATE NOCASE))",
+            selectionArgs = arrayOf("Download%", "video/mp4", "video/quicktime", "%.mp4")
+        )
 
-                if (id in processedUris) {
-                    Log.v(TAG, "scanDownloads: skipping already-processed $name")
-                    continue
-                }
-                newCount++
-                Log.d(TAG, "scanDownloads: processing $name (mime=$mime, id=$id)")
-                val fileUri = ContentUris.withAppendedId(
-                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, id
-                )
-                processFile(fileUri, name, id)
+        Log.d(TAG, "scanDownloads: ${candidates.size} total candidate(s) across all collections")
+
+        var newCount = 0
+        for ((fileUri, name) in candidates) {
+            val uriKey = fileUri.toString()
+            if (uriKey in processedUris) {
+                Log.v(TAG, "scanDownloads: skipping already-processed $name")
+                continue
             }
-
-            Log.i(TAG, "scanDownloads: $total candidate(s) found, $newCount new file(s) processed")
+            newCount++
+            Log.d(TAG, "scanDownloads: processing $name ($fileUri)")
+            processFile(fileUri, name, uriKey)
         }
 
+        Log.i(TAG, "scanDownloads: ${candidates.size} candidate(s) found, $newCount new file(s) processed")
         Log.d(TAG, "-scanDownloads()")
     }
 
-    private suspend fun processFile(uri: Uri, filename: String, id: Long) {
+    private suspend fun processFile(uri: Uri, filename: String, uriKey: String) {
         Log.d(TAG, "processFile: $filename ($uri)")
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: run {
@@ -196,7 +223,7 @@ class EXIFilerService : Service() {
                     targetFolder = targetFolder
                 )
                 if (moveResult) {
-                    processedUris[id] = Unit
+                    processedUris[uriKey] = Unit
                     val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                         .format(Date())
                     preferencesManager.addActivityLogEntry(
@@ -208,7 +235,7 @@ class EXIFilerService : Service() {
                 }
             } else {
                 // Mark as processed so we don't re-scan it on every observer callback
-                processedUris[id] = Unit
+                processedUris[uriKey] = Unit
             }
         } catch (e: Exception) {
             Log.e(TAG, "processFile: error processing $filename", e)
