@@ -38,7 +38,7 @@ androidApp/      # Android application module
   (no trailing generation number — intentionally forward-compatible with Gen 3+).
 
 ## Key constraints
-- Never use raw filesystem paths on Android 10+ (`minSdk = 26`).
+- Never use raw filesystem paths on Android 10+ (`minSdk = 29`).
 - Do not add Android or iOS platform imports to `shared/commonMain`.
 - `PreferencesRepository` `expect` and `actual` constructors must match exactly.
 - The `BootReceiver` must call `goAsync()` before launching coroutines.

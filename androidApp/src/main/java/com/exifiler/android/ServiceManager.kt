@@ -3,7 +3,6 @@ package com.exifiler.android
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,11 +14,7 @@ object ServiceManager {
 
     fun startService(context: Context) {
         val intent = Intent(context, EXIFilerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
+        context.startForegroundService(intent)
         Log.i(TAG, "EXIFilerService start requested")
     }
 
