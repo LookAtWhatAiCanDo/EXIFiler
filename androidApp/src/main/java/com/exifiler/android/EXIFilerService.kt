@@ -42,6 +42,9 @@ class EXIFilerService : Service() {
         override fun removeEldestEntry(eldest: Map.Entry<String, Unit>): Boolean = size > 500
     }
 
+    // URI + filename pair accumulated across MediaStore collections during a scan.
+    private data class FileEntry(val uri: Uri, val name: String)
+
     companion object {
         private const val TAG = "EXIFilerService"
         private const val NOTIFICATION_ID = 1001
@@ -124,7 +127,6 @@ class EXIFilerService : Service() {
     private suspend fun scanDownloads() = scanMutex.withLock {
         Log.d(TAG, "+scanDownloads()")
 
-        data class FileEntry(val uri: Uri, val name: String)
         val candidates = mutableListOf<FileEntry>()
 
         fun queryCollection(
@@ -170,7 +172,7 @@ class EXIFilerService : Service() {
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME,
             selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?",
-            selectionArgs = arrayOf("Download%")
+            selectionArgs = arrayOf("Download/%")
         )
 
         // 3. MediaStore.Video — MP4/MOV files in the Download folder (same reasoning as Images).
@@ -180,7 +182,7 @@ class EXIFilerService : Service() {
             selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ? AND " +
                 "((${MediaStore.Video.Media.MIME_TYPE} IN (?,?)) " +
                 "OR (${MediaStore.Video.Media.DISPLAY_NAME} LIKE ? COLLATE NOCASE))",
-            selectionArgs = arrayOf("Download%", "video/mp4", "video/quicktime", "%.mp4")
+            selectionArgs = arrayOf("Download/%", "video/mp4", "video/quicktime", "%.mp4")
         )
 
         Log.d(TAG, "scanDownloads: ${candidates.size} total candidate(s) across all collections")
