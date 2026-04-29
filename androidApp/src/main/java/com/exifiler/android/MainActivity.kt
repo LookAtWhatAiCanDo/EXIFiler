@@ -140,7 +140,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(16.dp)
+            .padding(start = 16.dp, end = 16.dp)
     ) {
         Text(
             text = stringResource(R.string.app_name),

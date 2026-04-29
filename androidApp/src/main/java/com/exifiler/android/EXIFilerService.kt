@@ -113,6 +113,7 @@ class EXIFilerService : Service() {
     }
 
     private suspend fun scanDownloads() = scanMutex.withLock {
+        Log.d(TAG, "+scanDownloads()")
         val projection = arrayOf(
             MediaStore.Downloads._ID,
             MediaStore.Downloads.DISPLAY_NAME,
@@ -123,14 +124,22 @@ class EXIFilerService : Service() {
         val selectionArgs = arrayOf("image/jpeg", "image/jpg", "video/mp4", "video/quicktime")
         val sortOrder = "${MediaStore.Downloads.DATE_ADDED} DESC"
 
-        contentResolver.query(
+        val cursor = contentResolver.query(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
             projection, selection, selectionArgs, sortOrder
-        )?.use { cursor ->
+        )
+        if (cursor == null) {
+            Log.e(TAG, "scanDownloads: Error querying downloads")
+            return@withLock
+        }
+        cursor.use {
+            var count = 0;
+
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
 
             while (cursor.moveToNext()) {
+                count++
                 val id = cursor.getLong(idCol)
                 val name = cursor.getString(nameCol) ?: continue
 
@@ -140,10 +149,19 @@ class EXIFilerService : Service() {
                 )
                 processFile(fileUri, name, id)
             }
+
+            if (count > 0) {
+                Log.i(TAG, "Matched $count files")
+            } else {
+                Log.i(TAG, "No files matched")
+            }
         }
+
+        Log.d(TAG, "-scanDownloads()")
     }
 
     private suspend fun processFile(uri: Uri, filename: String, id: Long) {
+        Log.d(TAG, "+processFile($uri, $filename, $id)")
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val result = inputStream.use { stream ->
@@ -175,5 +193,6 @@ class EXIFilerService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error processing file $filename", e)
         }
+        Log.d(TAG, "-processFile($uri, $filename, $id)")
     }
 }
