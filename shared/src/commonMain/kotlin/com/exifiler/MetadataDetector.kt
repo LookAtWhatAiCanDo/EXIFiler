@@ -4,6 +4,10 @@ import okio.BufferedSource
 
 object MetadataDetector {
 
+    private const val META_MAKE = "Meta"
+    private const val RAY_BAN_DEVICE_PREFIX = "device=Ray-Ban Meta Smart Glasses"
+    private const val MATCH_DEVICE_NAME = "Ray-Ban Meta Smart Glasses"
+
     fun detect(source: BufferedSource, filename: String): DetectionResult {
         val lower = filename.lowercase()
         return when {
@@ -12,6 +16,9 @@ object MetadataDetector {
             else -> DetectionResult.Unsupported
         }
     }
+
+    private fun isMetaMake(make: String?): Boolean =
+        make != null && make.trim('\u0000').equals(META_MAKE, ignoreCase = true)
 
     private fun detectJpeg(source: BufferedSource): DetectionResult {
         // Read JPEG SOI marker
@@ -34,8 +41,8 @@ object MetadataDetector {
                 if (remaining > 0 && header.decodeToString().startsWith("Exif")) {
                     val exifData = source.readByteArray(remaining.toLong())
                     val make = extractExifMake(exifData)
-                    if (make != null && make.trim('\u0000').equals("Meta", ignoreCase = true)) {
-                        return DetectionResult.Match("Ray-Ban Meta Smart Glasses")
+                    if (isMetaMake(make)) {
+                        return DetectionResult.Match(MATCH_DEVICE_NAME)
                     }
                 } else {
                     if (remaining > 0) source.skip(remaining.toLong())
@@ -91,25 +98,26 @@ object MetadataDetector {
 
     private fun detectMp4(source: BufferedSource): DetectionResult {
         // Scan MP4 boxes looking for comment metadata
-        while (!source.exhausted()) {
+        outer@ while (!source.exhausted()) {
             if (!source.request(8)) break
-            val size = source.readInt().toLong()
+            val sizeField = source.readInt().toLong()
             val type = source.readByteArray(4).decodeToString()
 
-            val boxDataSize = when {
-                size == 0L -> break // box extends to end of file
-                size == 1L -> { // 64-bit size
-                    if (!source.request(8)) break
+            // Compute the data size of this box
+            val boxDataSize: Long = when {
+                sizeField == 0L -> break@outer // box extends to end of file
+                sizeField == 1L -> { // 64-bit extended size
+                    if (!source.request(8)) break@outer
                     source.readLong() - 16
                 }
-                else -> size - 8
+                else -> sizeField - 8
             }
 
             if (type == "udta") {
                 // Parse udta children
                 val comment = parseUdtaForComment(source, boxDataSize)
-                if (comment != null && comment.contains("device=Ray-Ban Meta Smart Glasses")) {
-                    return DetectionResult.Match("Ray-Ban Meta Smart Glasses")
+                if (comment != null && comment.contains(RAY_BAN_DEVICE_PREFIX)) {
+                    return DetectionResult.Match(MATCH_DEVICE_NAME)
                 }
                 continue
             }

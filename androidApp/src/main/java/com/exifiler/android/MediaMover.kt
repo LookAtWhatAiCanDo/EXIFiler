@@ -65,7 +65,8 @@ object MediaMover {
             // Delete source
             val deleted = contentResolver.delete(sourceUri, null, null)
             if (deleted == 0) {
-                Log.w(TAG, "Source file $filename could not be deleted after copy")
+                Log.w(TAG, "Source file $filename could not be deleted after copy — " +
+                    "the file may appear duplicated in Downloads. Manual cleanup may be required.")
             }
 
             // Notify media scanner of new file

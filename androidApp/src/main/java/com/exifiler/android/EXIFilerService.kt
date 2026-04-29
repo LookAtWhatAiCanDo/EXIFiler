@@ -35,7 +35,9 @@ class EXIFilerService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var downloadsObserver: ContentObserver
     private lateinit var preferencesManager: AppPreferencesManager
-    private val processedUris = mutableSetOf<Long>()
+    private val processedUris = object : LinkedHashMap<Long, Unit>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<Long, Unit>): Boolean = size > 500
+    }
 
     companion object {
         private const val TAG = "EXIFilerService"
@@ -129,7 +131,6 @@ class EXIFilerService : Service() {
                 val name = cursor.getString(nameCol) ?: continue
 
                 if (id in processedUris) continue
-
                 val fileUri = ContentUris.withAppendedId(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI, id
                 )
@@ -155,7 +156,7 @@ class EXIFilerService : Service() {
                     targetFolder = targetFolder
                 )
                 if (moveResult) {
-                    processedUris.add(id)
+                    processedUris[id] = Unit
                     val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                         .format(Date())
                     preferencesManager.addActivityLogEntry(
@@ -165,7 +166,7 @@ class EXIFilerService : Service() {
                 }
             } else {
                 // Mark as processed so we don't re-scan it
-                processedUris.add(id)
+                processedUris[id] = Unit
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing file $filename", e)

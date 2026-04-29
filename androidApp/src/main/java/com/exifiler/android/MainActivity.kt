@@ -67,9 +67,15 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
 
     fun setTargetFolder(uri: Uri) {
         viewModelScope.launch {
-            // Convert document tree URI to a relative path label for display
-            val path = uri.lastPathSegment?.replace("primary:", "") ?: AppPreferencesManager.DEFAULT_TARGET_FOLDER
-            prefsManager.setTargetFolder(path)
+            // Persist the full tree URI string; derive a display path from the last path segment
+            val treeUriString = uri.toString()
+            val lastSegment = uri.lastPathSegment ?: ""
+            // SAF tree URIs have the form "primary:DCIM/Folder" or "XXXXX-XXXX:path"
+            val displayPath = when {
+                lastSegment.contains(':') -> lastSegment.substringAfter(':')
+                else -> lastSegment
+            }.ifBlank { AppPreferencesManager.DEFAULT_TARGET_FOLDER }
+            prefsManager.setTargetFolder(displayPath)
         }
     }
 }

@@ -32,6 +32,7 @@ android {
 
 dependencies {
     implementation(project(":shared"))
+    implementation(libs.core.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
