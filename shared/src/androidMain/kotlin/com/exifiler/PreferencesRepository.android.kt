@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.first
 private val Context.prefsDataStore: DataStore<Preferences>
     by preferencesDataStore(name = "exifiler_shared_prefs")
 
-actual class PreferencesRepository() {
+actual class PreferencesRepository actual constructor() {
 
     private val targetFolderKey = stringPreferencesKey("target_folder")
     private val serviceEnabledKey = booleanPreferencesKey("service_enabled")
