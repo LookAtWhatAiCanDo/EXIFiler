@@ -1,6 +1,6 @@
 package com.exifiler
 
-actual class PreferencesRepository {
+actual class PreferencesRepository() {
     actual suspend fun getTargetFolder(): String =
         TODO("iOS: read 'target_folder' key from NSUserDefaults.standard, return 'DCIM/EXIFiler' as default")
     actual suspend fun setTargetFolder(path: String): Unit =

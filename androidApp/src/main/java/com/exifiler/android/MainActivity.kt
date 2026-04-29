@@ -67,8 +67,6 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
 
     fun setTargetFolder(uri: Uri) {
         viewModelScope.launch {
-            // Persist the full tree URI string; derive a display path from the last path segment
-            val treeUriString = uri.toString()
             val lastSegment = uri.lastPathSegment ?: ""
             // SAF tree URIs have the form "primary:DCIM/Folder" or "XXXXX-XXXX:path"
             val displayPath = when {

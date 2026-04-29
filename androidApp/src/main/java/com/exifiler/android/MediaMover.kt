@@ -51,15 +51,24 @@ object MediaMover {
                 return false
             }
 
-            // Copy bytes
-            contentResolver.openInputStream(sourceUri)?.use { input ->
-                contentResolver.openOutputStream(destUri)?.use { output ->
-                    input.copyTo(output)
-                }
-            } ?: run {
-                Log.e(TAG, "Failed to open streams for $filename")
+            // Copy bytes — handle null streams explicitly to avoid data loss
+            val inputStream = contentResolver.openInputStream(sourceUri)
+            if (inputStream == null) {
+                Log.e(TAG, "Failed to open source input stream for $filename")
                 contentResolver.delete(destUri, null, null)
                 return false
+            }
+            val outputStream = contentResolver.openOutputStream(destUri)
+            if (outputStream == null) {
+                Log.e(TAG, "Failed to open destination output stream for $filename")
+                inputStream.close()
+                contentResolver.delete(destUri, null, null)
+                return false
+            }
+            inputStream.use { input ->
+                outputStream.use { output ->
+                    input.copyTo(output)
+                }
             }
 
             // Delete source

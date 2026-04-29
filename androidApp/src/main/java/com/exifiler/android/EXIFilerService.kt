@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -24,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okio.buffer
 import okio.source
 import java.text.SimpleDateFormat
@@ -35,6 +36,7 @@ class EXIFilerService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var downloadsObserver: ContentObserver
     private lateinit var preferencesManager: AppPreferencesManager
+    private val scanMutex = Mutex()
     private val processedUris = object : LinkedHashMap<Long, Unit>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: Map.Entry<Long, Unit>): Boolean = size > 500
     }
@@ -98,6 +100,8 @@ class EXIFilerService : Service() {
         val downloadsUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         downloadsObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
+                // Skip if a scan is already in progress (coalesce rapid notifications)
+                if (scanMutex.isLocked) return
                 serviceScope.launch {
                     scanDownloads()
                 }
@@ -108,7 +112,7 @@ class EXIFilerService : Service() {
         serviceScope.launch { scanDownloads() }
     }
 
-    private suspend fun scanDownloads() {
+    private suspend fun scanDownloads() = scanMutex.withLock {
         val projection = arrayOf(
             MediaStore.Downloads._ID,
             MediaStore.Downloads.DISPLAY_NAME,

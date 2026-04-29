@@ -35,12 +35,19 @@ object ServiceManager {
             if (action == Intent.ACTION_BOOT_COMPLETED ||
                 action == "android.intent.action.LOCKED_BOOT_COMPLETED"
             ) {
+                // goAsync() keeps the receiver alive past onReceive() so the
+                // coroutine can safely read DataStore before calling startService.
+                val pendingResult = goAsync()
                 val prefsManager = AppPreferencesManager(context)
                 CoroutineScope(Dispatchers.IO).launch {
-                    val enabled = prefsManager.isServiceEnabled()
-                    if (enabled) {
-                        Log.i(TAG, "Boot completed — restarting EXIFilerService")
-                        startService(context)
+                    try {
+                        val enabled = prefsManager.isServiceEnabled()
+                        if (enabled) {
+                            Log.i(TAG, "Boot completed — restarting EXIFilerService")
+                            startService(context)
+                        }
+                    } finally {
+                        pendingResult.finish()
                     }
                 }
             }

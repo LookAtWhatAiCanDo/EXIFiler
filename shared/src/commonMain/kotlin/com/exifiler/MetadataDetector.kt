@@ -22,11 +22,13 @@ object MetadataDetector {
 
     private fun detectJpeg(source: BufferedSource): DetectionResult {
         // Read JPEG SOI marker
+        if (!source.request(2)) return DetectionResult.Unsupported
         val soi = source.readShort()
         if (soi != 0xFFD8.toShort()) return DetectionResult.Unsupported
 
         // Scan JPEG segments looking for APP1 (0xFFE1) which contains EXIF
-        while (!source.exhausted()) {
+        while (true) {
+            if (!source.request(4)) break
             val marker = source.readShort().toInt() and 0xFFFF
             if (marker == 0xFFD9) break // EOI
             if (marker == 0xFFDA) break // SOS - no more metadata after this
@@ -34,20 +36,26 @@ object MetadataDetector {
             val segmentLength = (source.readShort().toInt() and 0xFFFF) - 2
             if (segmentLength < 0) break
 
-            if (marker == 0xFFE1) {
-                // Possibly EXIF APP1
+            if (marker == 0xFFE1 && segmentLength >= 6) {
+                // Possibly EXIF APP1 — guard that we can read the 6-byte header
+                if (!source.request(6)) break
                 val header = source.readByteArray(6)
                 val remaining = segmentLength - 6
                 if (remaining > 0 && header.decodeToString().startsWith("Exif")) {
+                    if (!source.request(remaining.toLong())) break
                     val exifData = source.readByteArray(remaining.toLong())
                     val make = extractExifMake(exifData)
                     if (isMetaMake(make)) {
                         return DetectionResult.Match(MATCH_DEVICE_NAME)
                     }
                 } else {
-                    if (remaining > 0) source.skip(remaining.toLong())
+                    if (remaining > 0) {
+                        if (!source.request(remaining.toLong())) break
+                        source.skip(remaining.toLong())
+                    }
                 }
-            } else {
+            } else if (segmentLength > 0) {
+                if (!source.request(segmentLength.toLong())) break
                 source.skip(segmentLength.toLong())
             }
         }
@@ -97,24 +105,33 @@ object MetadataDetector {
     }
 
     private fun detectMp4(source: BufferedSource): DetectionResult {
-        // Scan MP4 boxes looking for comment metadata
-        outer@ while (!source.exhausted()) {
+        // Scan top-level MP4 boxes looking for comment metadata
+        outer@ while (true) {
             if (!source.request(8)) break
-            val sizeField = source.readInt().toLong()
+            // Read size as unsigned 32-bit to cover the full range (0 to 4,294,967,295 bytes)
+            val sizeField = source.readInt().toLong() and 0xFFFFFFFFL
             val type = source.readByteArray(4).decodeToString()
 
-            // Compute the data size of this box
             val boxDataSize: Long = when {
-                sizeField == 0L -> break@outer // box extends to end of file
-                sizeField == 1L -> { // 64-bit extended size
+                sizeField == 0L -> {
+                    // Box extends to EOF — consume udta if it's this box, then stop
+                    if (type == "udta") {
+                        val comment = parseUdtaForComment(source, Long.MAX_VALUE)
+                        if (comment != null && comment.contains(RAY_BAN_DEVICE_PREFIX)) {
+                            return DetectionResult.Match(MATCH_DEVICE_NAME)
+                        }
+                    }
+                    break@outer
+                }
+                sizeField == 1L -> { // 64-bit extended size field
                     if (!source.request(8)) break@outer
                     source.readLong() - 16
                 }
+                sizeField < 8L -> break@outer // malformed box
                 else -> sizeField - 8
             }
 
             if (type == "udta") {
-                // Parse udta children
                 val comment = parseUdtaForComment(source, boxDataSize)
                 if (comment != null && comment.contains(RAY_BAN_DEVICE_PREFIX)) {
                     return DetectionResult.Match(MATCH_DEVICE_NAME)
@@ -122,35 +139,46 @@ object MetadataDetector {
                 continue
             }
 
-            // Skip box
-            if (boxDataSize > 0) source.skip(boxDataSize)
+            // Skip box data
+            if (boxDataSize > 0) {
+                if (!source.request(boxDataSize)) break
+                source.skip(boxDataSize)
+            }
         }
         return DetectionResult.NoMatch
     }
 
     private fun parseUdtaForComment(source: BufferedSource, udtaSize: Long): String? {
         var remaining = udtaSize
-        while (remaining >= 8) {
+        while (remaining == Long.MAX_VALUE || remaining >= 8) {
             if (!source.request(8)) break
-            val size = source.readInt().toLong()
+            // Read child box size as unsigned 32-bit
+            val sizeField = source.readInt().toLong() and 0xFFFFFFFFL
             val type = source.readByteArray(4).decodeToString()
-            remaining -= 8
+            if (remaining != Long.MAX_VALUE) remaining -= 8
 
-            val dataSize = (size - 8).coerceAtLeast(0)
-            remaining -= dataSize
+            // Validate and compute data size
+            if (sizeField == 0L || sizeField == 1L || sizeField < 8L) break // unsupported / malformed
+            val dataSize = sizeField - 8
+            if (remaining != Long.MAX_VALUE && dataSize > remaining) break // child exceeds parent
 
-            if (type == "\u00a9cmt" || type == "©cmt") {
-                if (dataSize > 0) {
+            if (remaining != Long.MAX_VALUE) remaining -= dataSize
+
+            if (type == "\u00a9cmt") {
+                if (dataSize > 4) {
+                    if (!source.request(dataSize)) break
                     val data = source.readByteArray(dataSize)
-                    // Skip language tag (first 4 bytes if present)
-                    return if (data.size > 4) data.copyOfRange(4, data.size).decodeToString()
-                    else data.decodeToString()
+                    // Skip the 4-byte iTunes-style language header if present
+                    return data.copyOfRange(4, data.size).decodeToString()
+                } else if (dataSize > 0) {
+                    if (!source.request(dataSize)) break
+                    return source.readByteArray(dataSize).decodeToString()
                 }
             } else if (dataSize > 0) {
+                if (!source.request(dataSize)) break
                 source.skip(dataSize)
             }
         }
-        if (remaining > 0 && remaining < udtaSize) source.skip(remaining)
         return null
     }
 }
