@@ -120,8 +120,18 @@ class EXIFilerService : Service() {
             MediaStore.Downloads.MIME_TYPE,
             MediaStore.Downloads.DATE_ADDED
         )
-        val selection = "${MediaStore.Downloads.MIME_TYPE} IN (?, ?, ?, ?)"
-        val selectionArgs = arrayOf("image/jpeg", "image/jpg", "video/mp4", "video/quicktime")
+        // Match by MIME type OR by filename extension so that files whose MIME_TYPE column is
+        // null or set incorrectly (e.g. transferred via USB/ADB) are still picked up.
+        // Note: LIKE with leading wildcards cannot use an index, but this is unavoidable for
+        // suffix extension matching and the Downloads table is typically small.
+        val selection = "(${MediaStore.Downloads.MIME_TYPE} IN (?, ?, ?, ?, ?)) " +
+            "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
+            "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
+            "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE)"
+        val selectionArgs = arrayOf(
+            "image/jpeg", "image/jpg", "image/pjpeg", "video/mp4", "video/quicktime",
+            "%.jpg", "%.jpeg", "%.mp4"
+        )
         val sortOrder = "${MediaStore.Downloads.DATE_ADDED} DESC"
 
         val cursor = contentResolver.query(
@@ -129,47 +139,55 @@ class EXIFilerService : Service() {
             projection, selection, selectionArgs, sortOrder
         )
         if (cursor == null) {
-            Log.e(TAG, "scanDownloads: Error querying downloads")
+            Log.e(TAG, "scanDownloads: contentResolver.query returned null")
             return@withLock
         }
         cursor.use {
-            var count = 0;
+            val total = cursor.count
+            Log.d(TAG, "scanDownloads: query returned $total candidate file(s)")
 
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.MIME_TYPE)
 
+            var newCount = 0
             while (cursor.moveToNext()) {
-                count++
                 val id = cursor.getLong(idCol)
                 val name = cursor.getString(nameCol) ?: continue
+                val mime = cursor.getString(mimeCol) ?: "<null>"
 
-                if (id in processedUris) continue
+                if (id in processedUris) {
+                    Log.v(TAG, "scanDownloads: skipping already-processed $name")
+                    continue
+                }
+                newCount++
+                Log.d(TAG, "scanDownloads: processing $name (mime=$mime, id=$id)")
                 val fileUri = ContentUris.withAppendedId(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI, id
                 )
                 processFile(fileUri, name, id)
             }
 
-            if (count > 0) {
-                Log.i(TAG, "Matched $count files")
-            } else {
-                Log.i(TAG, "No files matched")
-            }
+            Log.i(TAG, "scanDownloads: $total candidate(s) found, $newCount new file(s) processed")
         }
 
         Log.d(TAG, "-scanDownloads()")
     }
 
     private suspend fun processFile(uri: Uri, filename: String, id: Long) {
-        Log.d(TAG, "+processFile($uri, $filename, $id)")
+        Log.d(TAG, "processFile: $filename ($uri)")
         try {
-            val inputStream = contentResolver.openInputStream(uri) ?: return
+            val inputStream = contentResolver.openInputStream(uri) ?: run {
+                Log.w(TAG, "processFile: openInputStream returned null for $filename")
+                return
+            }
             val result = inputStream.use { stream ->
                 MetadataDetector.detect(stream.source().buffer(), filename)
             }
 
+            Log.d(TAG, "processFile: $filename -> $result")
             if (result is DetectionResult.Match) {
-                Log.i(TAG, "Matched Meta device file: $filename")
+                Log.i(TAG, "processFile: Meta device file detected: $filename (device=${result.deviceName})")
                 val targetFolder = preferencesManager.getTargetFolder()
                 val moveResult = MediaMover.moveFile(
                     context = applicationContext,
@@ -184,15 +202,16 @@ class EXIFilerService : Service() {
                     preferencesManager.addActivityLogEntry(
                         "$timestamp | $filename | Downloads → $targetFolder"
                     )
-                    Log.i(TAG, "Moved $filename to $targetFolder")
+                    Log.i(TAG, "processFile: moved $filename to $targetFolder")
+                } else {
+                    Log.e(TAG, "processFile: move failed for $filename")
                 }
             } else {
-                // Mark as processed so we don't re-scan it
+                // Mark as processed so we don't re-scan it on every observer callback
                 processedUris[id] = Unit
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing file $filename", e)
+            Log.e(TAG, "processFile: error processing $filename", e)
         }
-        Log.d(TAG, "-processFile($uri, $filename, $id)")
     }
 }
