@@ -22,10 +22,12 @@ import com.exifiler.MetadataDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okio.buffer
 import okio.source
 import java.text.SimpleDateFormat
@@ -57,6 +59,8 @@ class EXIFilerService : Service() {
         private const val CHANNEL_ID = "exifiler_service_channel"
         /** Intent action that triggers an immediate scan (e.g. after MANAGE_MEDIA is granted). */
         const val ACTION_SCAN_NOW = "com.exifiler.android.action.SCAN_NOW"
+        /** Intent action sent from the notification Quit button to stop the service. */
+        const val ACTION_QUIT = "com.exifiler.android.action.QUIT"
     }
 
     override fun onCreate() {
@@ -69,8 +73,16 @@ class EXIFilerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_SCAN_NOW) {
-            serviceScope.launch { scanDownloads() }
+        when (intent?.action) {
+            ACTION_SCAN_NOW -> serviceScope.launch { scanDownloads() }
+            ACTION_QUIT -> serviceScope.launch {
+                withContext(NonCancellable) {
+                    preferencesManager.setServiceEnabled(false)
+                    AppEvents.notifyQuit()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
         }
         return START_STICKY
     }
@@ -99,12 +111,18 @@ class EXIFilerService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
+        val quitPendingIntent = PendingIntent.getService(
+            this, 1,
+            Intent(this, EXIFilerService::class.java).apply { action = ACTION_QUIT },
+            PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(getString(R.string.notification_text))
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .addAction(0, getString(R.string.notification_quit_action), quitPendingIntent)
             .build()
     }
 

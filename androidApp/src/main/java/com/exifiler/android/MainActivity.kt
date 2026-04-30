@@ -47,6 +47,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -108,6 +111,15 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
         )
         requestRequiredPermissions()
+        // Finish the activity when the service emits a quit signal (e.g. notification Quit button).
+        // repeatOnLifecycle(STARTED) ensures collection only while the activity is visible;
+        // extraBufferCapacity=1 on the SharedFlow means a signal emitted while in background
+        // is picked up immediately when the activity returns to the foreground.
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                AppEvents.quit.collect { finish() }
+            }
+        }
         setContent {
             MaterialTheme {
                 Surface(
