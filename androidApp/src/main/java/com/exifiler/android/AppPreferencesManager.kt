@@ -89,12 +89,22 @@ class AppPreferencesManager(private val context: Context) {
         }
     }
 
-    /** Inserts [MonitoringProfile.DEFAULT] atomically if no profiles are stored yet. */
+    /**
+     * Inserts a default profile atomically if no profiles are stored yet.
+     *
+     * When upgrading from the legacy single-folder preference model, preserve any existing
+     * [TARGET_FOLDER_KEY] value by migrating it into the seeded default profile's
+     * [MonitoringProfile.outputFolder].
+     */
     suspend fun ensureDefaultProfile() {
         context.dataStore.edit { prefs ->
             val current = deserializeProfiles(prefs[PROFILES_KEY] ?: "[]")
             if (current.isEmpty()) {
-                prefs[PROFILES_KEY] = serializeProfiles(listOf(MonitoringProfile.DEFAULT))
+                val legacyTargetFolder = prefs[TARGET_FOLDER_KEY]?.trim()?.takeIf { it.isNotEmpty() }
+                val defaultProfile = legacyTargetFolder?.let {
+                    MonitoringProfile.DEFAULT.copy(outputFolder = it)
+                } ?: MonitoringProfile.DEFAULT
+                prefs[PROFILES_KEY] = serializeProfiles(listOf(defaultProfile))
             }
         }
     }
