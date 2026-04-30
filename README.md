@@ -82,11 +82,13 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 ## Requirements
 
 - **Android 10+** (minSdk 29)
+- Manifest-declared permissions:
+  - `FOREGROUND_SERVICE`
+  - `FOREGROUND_SERVICE_DATA_SYNC`
+  - `RECEIVE_BOOT_COMPLETED`
 - Permissions requested at runtime:
   - `READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO` (Android 13+) or `READ_EXTERNAL_STORAGE` (≤ Android 12)
   - `POST_NOTIFICATIONS` (Android 13+)
-  - `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC`
-  - `RECEIVE_BOOT_COMPLETED`
 - Optional but recommended: **Manage Media** (`MediaStore.canManageMedia`) — required on Android 12+ to silently delete source files without a per-file confirmation prompt. The app shows a banner and deep-links to Settings if this permission is missing; once granted, pending deletions are retried immediately.
 
 ---
