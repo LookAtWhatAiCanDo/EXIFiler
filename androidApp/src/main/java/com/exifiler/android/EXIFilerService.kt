@@ -58,6 +58,8 @@ class EXIFilerService : Service() {
         private const val CHANNEL_ID = "exifiler_service_channel"
         /** Intent action that triggers an immediate scan (e.g. after MANAGE_MEDIA is granted). */
         const val ACTION_SCAN_NOW = "com.exifiler.android.action.SCAN_NOW"
+        /** Default file extensions used when a profile's filePatterns list is empty. */
+        val SUPPORTED_EXTENSIONS = listOf("jpg", "jpeg", "mp4", "mov")
     }
 
     override fun onCreate() {
@@ -247,9 +249,11 @@ class EXIFilerService : Service() {
 
         var newCount = 0
         var matchCount = 0
+        // Empty filePatterns means "all supported types" — fall back to the known-good extension list
+        // so we never open/process every file in the folder indiscriminately.
+        val effectivePatterns = profile.filePatterns.ifEmpty { SUPPORTED_EXTENSIONS }
         for ((fileUri, name) in candidates) {
-            // Apply file-pattern filter (empty list = accept all supported types).
-            if (profile.filePatterns.isNotEmpty() && !matchesFilePatterns(name, profile.filePatterns)) {
+            if (!matchesFilePatterns(name, effectivePatterns)) {
                 Log.v(TAG, "scanForProfile[${profile.name}]: skipping $name — not in filePatterns")
                 continue
             }

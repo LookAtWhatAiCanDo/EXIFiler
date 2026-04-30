@@ -554,10 +554,10 @@ fun ProfileEditorDialog(
                             MonitoringProfile(
                                 id = initial?.id ?: UUID.randomUUID().toString(),
                                 name = name.trim(),
-                                inputFolder = inputFolder.trim().trimEnd('/'),
+                                inputFolder = inputFolder.trim().trimStart('/').trimEnd('/').replace(Regex("/+"), "/"),
                                 filePatterns = parsedPatterns,
                                 exifFilters = parsedFilters,
-                                outputFolder = outputFolder.trim().trimEnd('/'),
+                                outputFolder = outputFolder.trim().trimStart('/').trimEnd('/').replace(Regex("/+"), "/"),
                                 isEnabled = initial?.isEnabled ?: true,
                             )
                         )
