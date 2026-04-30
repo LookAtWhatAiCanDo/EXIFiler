@@ -17,8 +17,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,11 +47,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -110,10 +115,13 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
     }
 
     fun deleteSelected() {
+        // Snapshot the current selection immediately so the coroutine always deletes exactly
+        // what the user intended, even if the selection state changes before it executes.
+        val toDelete = _selectedEntries.value
+        _selectedEntries.value = emptySet()
+        _multiSelectActive.value = false
         viewModelScope.launch {
-            prefsManager.removeActivityLogEntries(_selectedEntries.value)
-            _selectedEntries.value = emptySet()
-            _multiSelectActive.value = false
+            prefsManager.removeActivityLogEntries(toDelete)
         }
     }
 
@@ -200,8 +208,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val MultiSelectBarHeight = 72.dp
-
 @Composable
 fun EXIFilerScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
@@ -212,6 +218,10 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     val needsManageMedia by viewModel.needsManageMedia.collectAsState()
     val multiSelectActive by viewModel.multiSelectActive.collectAsState()
     val selectedEntries by viewModel.selectedEntries.collectAsState()
+
+    // Track the actual rendered height of the action bar so the list never scrolls behind it.
+    var multiSelectBarHeightPx by remember { mutableIntStateOf(0) }
+    val multiSelectBarHeightDp = with(LocalDensity.current) { multiSelectBarHeightPx.toDp() }
 
     // Auto-exit multi-select if the log becomes empty (e.g. after deleting all entries)
     LaunchedEffect(activityLog) {
@@ -232,8 +242,9 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(start = 16.dp, end = 16.dp)
-                // Reserve space at the bottom so the list is never hidden behind the action bar
-                .then(if (multiSelectActive) Modifier.padding(bottom = MultiSelectBarHeight) else Modifier)
+                // Reserve space at the bottom so the list is never hidden behind the action bar.
+                // Uses the actual measured bar height so navigation insets are accounted for.
+                .then(if (multiSelectActive) Modifier.padding(bottom = multiSelectBarHeightDp) else Modifier)
         ) {
         Text(
             text = stringResource(R.string.app_name),
@@ -384,7 +395,10 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.BottomCenter),
+                    .align(Alignment.BottomCenter)
+                    // Measure the true height (including navigation insets) so the Column above
+                    // can reserve exactly the right amount of bottom padding.
+                    .onSizeChanged { multiSelectBarHeightPx = it.height },
                 shadowElevation = 8.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
@@ -425,7 +439,6 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     } // end Box
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ActivityLogEntry(
     entry: String,
@@ -434,19 +447,24 @@ fun ActivityLogEntry(
     onLongClick: () -> Unit,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    val entryDescription = if (isSelected) {
-        stringResource(R.string.entry_selected_description, entry)
+    // In multi-select mode the whole row is clickable (toggles selection).
+    // In normal mode only a long-press is meaningful (enters multi-select); the row is NOT
+    // announced as "clickable" to accessibility services so there is no confusing tap ripple.
+    val interactionModifier = if (isMultiSelectActive) {
+        Modifier.clickable { onCheckedChange(!isSelected) }
     } else {
-        entry
+        Modifier.pointerInput(Unit) {
+            detectTapGestures(onLongPress = { onLongClick() })
+        }
     }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = { if (isMultiSelectActive) onCheckedChange(!isSelected) },
-                onLongClick = { if (!isMultiSelectActive) onLongClick() }
-            )
-            .semantics { contentDescription = entryDescription }
+            .then(interactionModifier)
+            // Expose selection state via standard semantics so TalkBack announces
+            // "selected" / "not selected" alongside the text without a redundant
+            // custom contentDescription overriding the visible text.
+            .semantics(mergeDescendants = true) { selected = isSelected }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
