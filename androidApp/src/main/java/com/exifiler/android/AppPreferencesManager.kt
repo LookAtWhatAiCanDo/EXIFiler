@@ -67,6 +67,16 @@ class AppPreferencesManager(private val context: Context) {
         }
     }
 
+    suspend fun removeActivityLogEntries(entriesToRemove: Set<String>) {
+        context.dataStore.edit { prefs ->
+            val existing = prefs[ACTIVITY_LOG_KEY] ?: ""
+            val entries = if (existing.isBlank()) emptyList()
+            else existing.split("\n").filter { it.isNotBlank() }
+            val remaining = entries.filter { it !in entriesToRemove }
+            prefs[ACTIVITY_LOG_KEY] = remaining.joinToString("\n")
+        }
+    }
+
     // ── Monitoring Profiles ────────────────────────────────────────────────
 
     /** Emits the current list of [MonitoringProfile]s whenever it changes. */

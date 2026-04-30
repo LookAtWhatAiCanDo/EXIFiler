@@ -15,21 +15,27 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -38,15 +44,24 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -61,6 +76,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -76,6 +92,12 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
 
     val profiles: StateFlow<List<MonitoringProfile>> = prefsManager.profilesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _multiSelectActive = MutableStateFlow(false)
+    val multiSelectActive: StateFlow<Boolean> = _multiSelectActive.asStateFlow()
+
+    private val _selectedEntries = MutableStateFlow<Set<String>>(emptySet())
+    val selectedEntries: StateFlow<Set<String>> = _selectedEntries.asStateFlow()
 
     private val _needsManageMedia = MutableStateFlow(false)
     val needsManageMedia: StateFlow<Boolean> = _needsManageMedia.asStateFlow()
@@ -100,6 +122,44 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
             prefsManager.setServiceEnabled(enabled)
             if (enabled) ServiceManager.startService(context)
             else ServiceManager.stopService(context)
+        }
+    }
+
+    fun enterMultiSelectMode(entry: String) {
+        _selectedEntries.value = setOf(entry)
+        _multiSelectActive.value = true
+    }
+
+    fun toggleSelection(entry: String) {
+        _selectedEntries.update { current ->
+            if (entry in current) current - entry else current + entry
+        }
+    }
+
+    fun selectAll() {
+        _selectedEntries.value = activityLog.value.toSet()
+    }
+
+    fun unselectAll() {
+        _selectedEntries.value = emptySet()
+    }
+
+    fun cancelMultiSelect() {
+        _selectedEntries.value = emptySet()
+        _multiSelectActive.value = false
+    }
+
+    fun deleteSelected() {
+        // Snapshot the current selection before doing anything else.  The coroutine only
+        // references this local val, so any state changes that happen after this point
+        // (e.g. user re-entering multi-select) never affect which entries are deleted.
+        val toDelete = _selectedEntries.value
+        // Clear UI state immediately for a responsive feel; safe because the coroutine
+        // no longer reads _selectedEntries or _multiSelectActive after this point.
+        _selectedEntries.value = emptySet()
+        _multiSelectActive.value = false
+        viewModelScope.launch {
+            prefsManager.removeActivityLogEntries(toDelete)
         }
     }
 
@@ -189,6 +249,21 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     val profiles by viewModel.profiles.collectAsState()
     // Refreshed on every onResume via MainViewModel.refreshManageMediaState()
     val needsManageMedia by viewModel.needsManageMedia.collectAsState()
+    val multiSelectActive by viewModel.multiSelectActive.collectAsState()
+    val selectedEntries by viewModel.selectedEntries.collectAsState()
+
+    // Track the actual rendered height of the action bar so the list never scrolls behind it.
+    // rememberSaveable preserves the last-known height across config changes (e.g. rotation)
+    // so the list keeps the correct padding until onSizeChanged fires with the new measurement.
+    var multiSelectBarHeightPx by rememberSaveable { mutableIntStateOf(0) }
+    val multiSelectBarHeightDp = with(LocalDensity.current) { multiSelectBarHeightPx.toDp() }
+
+    // Auto-exit multi-select if the log becomes empty (e.g. after deleting all entries)
+    LaunchedEffect(activityLog) {
+        if (activityLog.isEmpty() && multiSelectActive) {
+            viewModel.cancelMultiSelect()
+        }
+    }
 
     // Dialog state
     var showProfileDialog by remember { mutableStateOf(false) }
@@ -226,170 +301,228 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
         )
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(start = 16.dp, end = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
-    ) {
-        item {
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(start = 16.dp, end = 16.dp)
+                // Reserve space at the bottom so the list is never hidden behind the action bar.
+                // Uses the actual measured bar height so navigation insets are accounted for.
+                .then(if (multiSelectActive) Modifier.padding(bottom = multiSelectBarHeightDp) else Modifier),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            item {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
 
-        // ── Media Management permission banner (API 31+ only, shown until granted) ──────────────
-        if (needsManageMedia) {
+            // ── Media Management permission banner (API 31+ only, shown until granted) ──────────────
+            if (needsManageMedia) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = stringResource(R.string.permission_media_required),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = stringResource(R.string.permission_media_explanation),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA).apply {
+                                                data = Uri.fromParts("package", context.packageName, null)
+                                            }
+                                        )
+                                    }
+                                }
+                            ) {
+                                Text(stringResource(R.string.grant_in_settings))
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // ── Service toggle ────────────────────────────────────────────────────────────────────────
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = stringResource(R.string.permission_media_required),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Text(
-                            text = stringResource(R.string.permission_media_explanation),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    context.startActivity(
-                                        Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA).apply {
-                                            data = Uri.fromParts("package", context.packageName, null)
-                                        }
-                                    )
-                                }
-                            }
-                        ) {
-                            Text(stringResource(R.string.grant_in_settings))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = if (serviceEnabled) stringResource(R.string.service_running)
+                                else stringResource(R.string.service_stopped),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = stringResource(R.string.service_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
+                        Switch(
+                            checked = serviceEnabled,
+                            onCheckedChange = { viewModel.setServiceEnabled(context, it) }
+                        )
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
-        }
 
-        // ── Service toggle ────────────────────────────────────────────────────────────────────────
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            // ── Monitoring Profiles header ─────────────────────────────────────────────────────────
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.profiles_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Button(onClick = {
+                        editingProfile = null
+                        showProfileDialog = true
+                    }) {
+                        Text(stringResource(R.string.profile_add))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // ── Profile list ───────────────────────────────────────────────────────────────────────
+            if (profiles.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.profiles_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            } else {
+                items(profiles) { profile ->
+                    ProfileCard(
+                        profile = profile,
+                        onToggle = { viewModel.toggleProfile(profile) },
+                        onEdit = { editingProfile = profile; showProfileDialog = true },
+                        onDelete = { deleteConfirmProfile = profile }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
+
+            // ── Activity log ───────────────────────────────────────────────────────────────────────
+            item {
+                Text(
+                    text = stringResource(R.string.recent_activity),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (activityLog.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.no_activity),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+            } else {
+                items(activityLog) { entry ->
+                    ActivityLogEntry(
+                        entry = entry,
+                        isMultiSelectActive = multiSelectActive,
+                        isSelected = selectedEntries.contains(entry),
+                        onLongClick = { viewModel.enterMultiSelectMode(entry) },
+                        onCheckedChange = { viewModel.toggleSelection(entry) }
+                    )
+                }
+            }
+
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        } // end LazyColumn
+
+        // Multi-select action bar — anchored to the bottom of the screen
+        if (multiSelectActive) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    // Measure the true height (including navigation insets) so the LazyColumn above
+                    // can reserve exactly the right amount of bottom padding.
+                    .onSizeChanged { multiSelectBarHeightPx = it.height },
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            text = if (serviceEnabled) stringResource(R.string.service_running)
-                            else stringResource(R.string.service_stopped),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = stringResource(R.string.service_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                    // Cancel — fully left-justified
+                    TextButton(onClick = { viewModel.cancelMultiSelect() }) {
+                        Text(stringResource(R.string.cancel))
                     }
-                    Switch(
-                        checked = serviceEnabled,
-                        onCheckedChange = { viewModel.setServiceEnabled(context, it) }
-                    )
+                    // Spacer pushes Select All + Delete Selected to the right
+                    Spacer(modifier = Modifier.weight(1f))
+                    // Toggle between Select All / Unselect All based on current selection state.
+                    // Use containsAll to correctly handle duplicate log entries (Set vs List size
+                    // comparison would fail when the log contains repeated strings).
+                    val allSelected = activityLog.isNotEmpty() && selectedEntries.containsAll(activityLog)
+                    TextButton(
+                        onClick = {
+                            if (allSelected) viewModel.unselectAll() else viewModel.selectAll()
+                        }
+                    ) {
+                        Text(stringResource(if (allSelected) R.string.unselect_all else R.string.select_all))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { viewModel.deleteSelected() },
+                        enabled = selectedEntries.isNotEmpty()
+                    ) {
+                        Text(stringResource(R.string.delete_selected))
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(24.dp))
         }
-
-        // ── Monitoring Profiles header ─────────────────────────────────────────────────────────
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.profiles_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Button(onClick = {
-                    editingProfile = null
-                    showProfileDialog = true
-                }) {
-                    Text(stringResource(R.string.profile_add))
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        // ── Profile list ───────────────────────────────────────────────────────────────────────
-        if (profiles.isEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.profiles_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        } else {
-            items(profiles) { profile ->
-                ProfileCard(
-                    profile = profile,
-                    onToggle = { viewModel.toggleProfile(profile) },
-                    onEdit = { editingProfile = profile; showProfileDialog = true },
-                    onDelete = { deleteConfirmProfile = profile }
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-        }
-
-        // ── Activity log ───────────────────────────────────────────────────────────────────────
-        item {
-            Text(
-                text = stringResource(R.string.recent_activity),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        if (activityLog.isEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.no_activity),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
-            }
-        } else {
-            items(activityLog) { entry ->
-                ActivityLogEntry(entry = entry)
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(16.dp)) }
-    }
+    } // end Box
 }
 
 // ── Profile Card ───────────────────────────────────────────────────────────────────────────────
@@ -584,13 +717,60 @@ fun ProfileEditorDialog(
 }
 
 @Composable
-fun ActivityLogEntry(entry: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = entry,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
+fun ActivityLogEntry(
+    entry: String,
+    isMultiSelectActive: Boolean,
+    isSelected: Boolean,
+    onLongClick: () -> Unit,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    // In multi-select mode the whole row is clickable (toggles selection).
+    // In normal mode only a long-press is meaningful (enters multi-select); the row is NOT
+    // announced as "clickable" to accessibility services so there is no confusing tap ripple.
+    val interactionModifier = if (isMultiSelectActive) {
+        Modifier.clickable { onCheckedChange(!isSelected) }
+    } else {
+        // Handles physical long-press for sighted users.  Accessibility services (TalkBack,
+        // Switch Access) use the semantics onLongClick action declared below, not pointer events.
+        Modifier.pointerInput(Unit) {
+            detectTapGestures(onLongPress = { onLongClick() })
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(interactionModifier)
+            // Standard selection semantics so TalkBack announces "selected" / "not selected"
+            // alongside the visible text.  In normal (non-multi-select) mode, advertise a
+            // long-click action so TalkBack / Switch Access users can also enter multi-select.
+            .semantics(mergeDescendants = true) {
+                selected = isSelected
+                if (!isMultiSelectActive) {
+                    onLongClick(label = "Select") {
+                        onLongClick()
+                        true
+                    }
+                }
+            }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (isMultiSelectActive) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = onCheckedChange
+                )
+            }
+            Text(
+                text = entry,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .weight(1f)
+            )
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
     }
 }
