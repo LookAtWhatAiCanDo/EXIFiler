@@ -99,6 +99,10 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
         _selectedEntries.value = activityLog.value.toSet()
     }
 
+    fun unselectAll() {
+        _selectedEntries.value = emptySet()
+    }
+
     fun cancelMultiSelect() {
         _selectedEntries.value = emptySet()
         _multiSelectActive.value = false
@@ -396,9 +400,14 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                     }
                     // Spacer pushes Select All + Delete Selected to the right
                     Spacer(modifier = Modifier.weight(1f))
-                    // Select All then Delete Selected — fully right-justified
-                    TextButton(onClick = { viewModel.selectAll() }) {
-                        Text(stringResource(R.string.select_all))
+                    // Toggle between Select All / Unselect All based on current selection state
+                    val allSelected = activityLog.isNotEmpty() && selectedEntries.size == activityLog.size
+                    TextButton(
+                        onClick = {
+                            if (allSelected) viewModel.unselectAll() else viewModel.selectAll()
+                        }
+                    ) {
+                        Text(stringResource(if (allSelected) R.string.unselect_all else R.string.select_all))
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(

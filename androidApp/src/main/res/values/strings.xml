@@ -11,6 +11,7 @@
     <string name="notification_title">EXIFiler Active</string>
     <string name="notification_text">Monitoring Downloads folder</string>
     <string name="select_all">Select All</string>
+    <string name="unselect_all">Unselect All</string>
     <string name="delete_selected">Delete Selected</string>
     <string name="cancel">Cancel</string>
     <string name="entry_selected_description">Selected: %1$s</string>
