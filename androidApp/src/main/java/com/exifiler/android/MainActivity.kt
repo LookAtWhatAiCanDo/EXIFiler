@@ -122,8 +122,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        val hadPermissionMissing = viewModel.needsManageMedia.value
         // Refresh MANAGE_MEDIA state in case the user just came back from Settings
         viewModel.refreshManageMediaState(this)
+        // If MANAGE_MEDIA was just granted, trigger an immediate rescan so the service retries
+        // pending source deletions without waiting for the next ContentObserver notification.
+        if (hadPermissionMissing && !viewModel.needsManageMedia.value) {
+            ServiceManager.requestScan(this)
+        }
     }
 
     private fun requestRequiredPermissions() {

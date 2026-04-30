@@ -61,14 +61,15 @@ object MediaMover {
             // Check if destination already has a file with the same name.
             // If so, the file was already copied in a previous scan; skip the copy and
             // just try to delete the source so it stops re-appearing in Downloads.
+            // MediaStore stores RELATIVE_PATH with a trailing slash; append one if absent.
             val destPathForQuery = if (relativeFolder.endsWith("/")) relativeFolder else "$relativeFolder/"
             val alreadyExists = contentResolver.query(
                 destCollection,
                 arrayOf(MediaStore.MediaColumns._ID),
                 "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
                 arrayOf(filename, destPathForQuery),
-                null
-            )?.use { it.count > 0 } == true
+                null,
+            )?.use { it.moveToFirst() } == true
 
             if (alreadyExists) {
                 Log.i(TAG, "Destination already contains $filename — skipping copy, attempting source delete")

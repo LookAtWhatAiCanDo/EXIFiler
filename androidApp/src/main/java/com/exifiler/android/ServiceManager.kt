@@ -24,6 +24,19 @@ object ServiceManager {
         Log.i(TAG, "EXIFilerService stop requested")
     }
 
+    /**
+     * Sends an immediate scan request to a running [EXIFilerService].
+     * Use this after the user grants MANAGE_MEDIA permission so pending source deletions
+     * are retried right away without waiting for the next ContentObserver notification.
+     */
+    fun requestScan(context: Context) {
+        val intent = Intent(context, EXIFilerService::class.java).apply {
+            action = EXIFilerService.ACTION_SCAN_NOW
+        }
+        context.startForegroundService(intent)
+        Log.i(TAG, "EXIFilerService immediate scan requested")
+    }
+
     class BootReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val action = intent.action ?: return

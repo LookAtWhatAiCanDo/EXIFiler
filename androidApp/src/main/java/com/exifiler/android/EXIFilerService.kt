@@ -1,5 +1,6 @@
 package com.exifiler.android
 
+import android.app.RecoverableSecurityException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,7 +11,6 @@ import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
 import android.net.Uri
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -42,6 +42,11 @@ class EXIFilerService : Service() {
     private val processedUris = object : LinkedHashMap<String, Unit>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: Map.Entry<String, Unit>): Boolean = size > 500
     }
+    // Source URIs where copy succeeded but delete failed. Retried at the start of every scan
+    // so that once MANAGE_MEDIA is granted (or service is restarted) the originals are cleaned up.
+    // All access happens inside scanDownloads() which holds scanMutex, so no separate
+    // synchronization is needed.
+    private val retryDeleteUris = LinkedHashSet<Uri>()
 
     // URI + filename pair accumulated across MediaStore collections during a scan.
     private data class FileEntry(val uri: Uri, val name: String)
@@ -50,8 +55,8 @@ class EXIFilerService : Service() {
         private const val TAG = "EXIFilerService"
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "exifiler_service_channel"
-        private const val DELETE_CHANNEL_ID = "exifiler_delete_batch"
-        private const val DELETE_NOTIFICATION_ID = 1002
+        /** Intent action that triggers an immediate scan (e.g. after MANAGE_MEDIA is granted). */
+        const val ACTION_SCAN_NOW = "com.exifiler.android.action.SCAN_NOW"
     }
 
     override fun onCreate() {
@@ -64,6 +69,9 @@ class EXIFilerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_SCAN_NOW) {
+            serviceScope.launch { scanDownloads() }
+        }
         return START_STICKY
     }
 
@@ -81,12 +89,6 @@ class EXIFilerService : Service() {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW).apply {
                 description = "EXIFiler background service notifications"
-            }
-        )
-        // Channel for the one-time batch-delete approval on API 30 (Android 11)
-        manager.createNotificationChannel(
-            NotificationChannel(DELETE_CHANNEL_ID, "Remove originals from Downloads", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Tap to approve removal of original files from Downloads (one-time per scan)"
             }
         )
     }
@@ -132,6 +134,23 @@ class EXIFilerService : Service() {
 
     private suspend fun scanDownloads() = scanMutex.withLock {
         Log.d(TAG, "+scanDownloads()")
+
+        // Retry source deletions that failed in a previous scan (e.g. MANAGE_MEDIA was just granted).
+        val retryIter = retryDeleteUris.iterator()
+        while (retryIter.hasNext()) {
+            val uri = retryIter.next()
+            try {
+                if (contentResolver.delete(uri, null, null) > 0) {
+                    Log.i(TAG, "scanDownloads: retroactively deleted source $uri")
+                    retryIter.remove()
+                }
+            } catch (_: RecoverableSecurityException) {
+                // Still no permission — keep in set for next scan.
+            } catch (e: Exception) {
+                Log.w(TAG, "scanDownloads: giving up on pending delete for $uri", e)
+                retryIter.remove()
+            }
+        }
 
         val candidates = mutableListOf<FileEntry>()
 
@@ -193,10 +212,6 @@ class EXIFilerService : Service() {
 
         Log.d(TAG, "scanDownloads: ${candidates.size} total candidate(s) across all collections")
 
-        // Collect URIs where the copy succeeded but we couldn't delete the original.
-        // These are batched into a single system dialog at the end of the scan (API 30 only).
-        val pendingDeleteUris = mutableListOf<Uri>()
-
         var newCount = 0
         var matchCount = 0
         for ((fileUri, name) in candidates) {
@@ -207,7 +222,7 @@ class EXIFilerService : Service() {
             }
             newCount++
             Log.d(TAG, "scanDownloads: processing $name ($fileUri)")
-            if (processFile(fileUri, name, uriKey, pendingDeleteUris)) matchCount++
+            if (processFile(fileUri, name, uriKey)) matchCount++
         }
 
         Log.i(TAG, "scanDownloads: ${candidates.size} candidate(s) found, $newCount new, $matchCount matched")
@@ -221,35 +236,13 @@ class EXIFilerService : Service() {
             )
         }
 
-        // On API 30 (Android 11), MANAGE_MEDIA doesn't exist.  Batch all pending deletes into
-        // a SINGLE system dialog — one tap covers all files instead of one dialog per file.
-        if (pendingDeleteUris.isNotEmpty()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val deletePi = MediaStore.createDeleteRequest(contentResolver, pendingDeleteUris)
-                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val notification = NotificationCompat.Builder(this, DELETE_CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_notification)
-                    .setContentTitle("EXIFiler: tap to remove originals from Downloads")
-                    .setContentText("${pendingDeleteUris.size} file(s) already copied to DCIM/EXIFiler — tap to delete from Downloads")
-                    .setContentIntent(deletePi)
-                    .setAutoCancel(true)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .build()
-                nm.notify(DELETE_NOTIFICATION_ID, notification)
-                Log.w(TAG, "scanDownloads: ${pendingDeleteUris.size} source(s) need user approval to delete — notification shown")
-            } else {
-                Log.w(TAG, "scanDownloads: ${pendingDeleteUris.size} source(s) could not be deleted (API 29 + legacy storage issue?)")
-            }
-        }
-
         Log.d(TAG, "-scanDownloads()")
     }
 
     private suspend fun processFile(
         uri: Uri,
         filename: String,
-        uriKey: String,
-        pendingDeleteUris: MutableList<Uri>
+        uriKey: String
     ): Boolean {
         Log.d(TAG, "processFile: $filename ($uri)")
         return try {
@@ -283,14 +276,15 @@ class EXIFilerService : Service() {
                         true
                     }
                     is MediaMover.MoveResult.CopiedDeletePending -> {
-                        // Copy succeeded but delete needs user approval (API 30 only).
-                        // Accumulate for the end-of-scan batch notification.
-                        pendingDeleteUris.add(moveResult.sourceUri)
+                        // Copy succeeded but delete was denied (no MANAGE_MEDIA / API 30).
+                        // Enqueue the source URI so the retry loop at the top of the next scan
+                        // can clean it up once permission is available.
+                        retryDeleteUris.add(moveResult.sourceUri)
                         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                         preferencesManager.addActivityLogEntry(
-                            "$timestamp | $filename | Copied → $targetFolder (tap notification to remove from Downloads)"
+                            "$timestamp | $filename | Copied → $targetFolder (source delete pending — grant Media Management permission)"
                         )
-                        Log.w(TAG, "processFile: $filename copied but delete pending user approval")
+                        Log.w(TAG, "processFile: $filename copied; source delete pending (will retry on next scan)")
                         true
                     }
                     is MediaMover.MoveResult.Failure -> {
