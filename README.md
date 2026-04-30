@@ -9,7 +9,7 @@ A Kotlin Multiplatform (KMP) Android app that automatically organises media file
 - **Automatic detection** — identifies Meta AI Glasses files by inspecting EXIF metadata (JPEG) and MP4 box atoms (MP4/MOV), not just filenames.
 - **Background service** — runs as a foreground service with a persistent notification; survives device reboots.
 - **Configurable destination** — pick any folder on internal storage via the system folder picker.
-- **Activity log** — in-app scrollable log showing recent file moves.
+- **Activity log** — in-app scrollable log showing the 10 most recent file operations.
 - **Scoped storage** — all file I/O uses `ContentResolver`/`MediaStore`; no raw filesystem paths.
 
 ---
@@ -27,11 +27,22 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 
 ### Service flow
 
-1. `EXIFilerService` registers a `ContentObserver` on `MediaStore.Downloads`.
-2. When a new JPEG or MP4 appears, it opens a buffered stream and calls `MetadataDetector.detect()`.
-3. On a `DetectionResult.Match`, `MediaMover` copies the file to the destination folder via `ContentResolver`, then deletes the original.
-4. `MediaScannerHelper` triggers a `MediaStore` re-index so the moved file appears in the gallery immediately.
-5. `BootReceiver` restarts the service automatically after a reboot.
+1. `EXIFilerService` starts as a foreground service and registers `ContentObserver` instances on **three** `MediaStore` collections — `Downloads`, `Images`, and `Video` — because some devices index Download-folder media under `Images`/`Video` rather than `Downloads`.
+2. On each change notification, `scanDownloads()` queries all three collections for JPEG/MP4 candidates in the `Download/` relative path.
+3. Each candidate URI is checked against an in-memory LRU cache (`processedUris`, max 500 entries) so already-processed files are skipped.
+4. For new files, `MetadataDetector.detect()` reads the file bytes through a buffered `okio` stream and returns one of:
+   - `DetectionResult.Match(deviceName)` — file is from a Meta AI Glasses device
+   - `DetectionResult.NoMatch` — file is a supported format but not from a matching device
+   - `DetectionResult.Unsupported` — file extension is not handled
+5. On a `Match`, `MediaMover.moveFile()` copies the file to the destination folder via `ContentResolver` and attempts to delete the source. The result is one of three states:
+   - `MoveResult.Success` — copy and delete both succeeded
+   - `MoveResult.CopiedDeletePending(sourceUri)` — copy succeeded but delete was denied (e.g. `MANAGE_MEDIA` not yet granted); the URI is queued for retry
+   - `MoveResult.Failure` — copy itself failed
+6. Pending-delete URIs are retried at the start of every subsequent scan, so once the user grants **Manage Media** permission the originals are cleaned up automatically without any user interaction.
+7. `MediaScannerHelper` notifies `MediaStore` of the new file so it appears in the gallery immediately.
+8. `BootReceiver` reads the saved `service_enabled` preference via DataStore and restarts the service after a device reboot if the toggle was on.
+9. When `MainActivity` detects that **Manage Media** was just granted (via `onResume`), it calls `ServiceManager.requestScan()` which sends an `ACTION_SCAN_NOW` intent to trigger an immediate retry of any pending deletes.
+10. If files were scanned but none matched, a summary entry (`Scan: N file(s) checked — 0 matched Meta Glasses criteria`) is written to the activity log so the user can confirm the service is actively watching.
 
 ---
 
@@ -43,10 +54,11 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 │  MetadataDetector  DetectionResult  MediaMoveRequest  │
 │  PreferencesRepository (expect)                       │
 └────────────────┬──────────────────────────────────────┘
-                 │ androidMain (DataStore actual)
+                 │ androidMain (DataStore actual + AppContextHolder)
                  ▼
 ┌──────────────────────────────────────────────────────┐
 │              androidApp                               │
+│  EXIFilerApp (initialises AppContextHolder)           │
 │  EXIFilerService ──► MediaMover ──► MediaScannerHelper│
 │  ServiceManager + BootReceiver                        │
 │  AppPreferencesManager   MainActivity (Compose UI)    │
@@ -58,9 +70,11 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 | Path | Purpose |
 |------|---------|
 | `shared/commonMain` | Detection logic, models, `expect` declarations — zero platform imports |
-| `shared/androidMain` | `actual PreferencesRepository` backed by DataStore |
+| `shared/androidMain` | `actual PreferencesRepository` backed by DataStore; `AppContextHolder` provides `Context` to the shared module |
 | `shared/iosMain` | iOS stubs (Phase 2) |
 | `androidApp` | Android app — service, file mover, Compose UI |
+
+`AppContextHolder` is an object in `shared/androidMain` that holds the application `Context`. `EXIFilerApp.onCreate()` populates it so the shared `PreferencesRepository` actual can access DataStore without a platform constructor parameter.
 
 ---
 
@@ -72,7 +86,7 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
   - `POST_NOTIFICATIONS` (Android 13+)
   - `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC`
   - `RECEIVE_BOOT_COMPLETED`
-- Optional but recommended: **Manage Media** (`MediaStore.canManageMedia`) — required on Android 12+ to silently delete source files. The app shows a banner and deep-links to Settings if this is missing.
+- Optional but recommended: **Manage Media** (`MediaStore.canManageMedia`) — required on Android 12+ to silently delete source files without a per-file confirmation prompt. The app shows a banner and deep-links to Settings if this permission is missing; once granted, pending deletions are retried immediately.
 
 ---
 
@@ -85,14 +99,13 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 # Shared module only
 ./gradlew :shared:assembleDebug
 
-# Unit tests (all modules)
-./gradlew test
-
 # Android Lint
 ./gradlew :androidApp:lintDebug
 ```
 
 Output APK: `androidApp/build/outputs/apk/debug/`
+
+> **Note:** No unit tests have been written yet. The `./gradlew test` task succeeds but runs nothing.
 
 ### Key versions
 
@@ -111,10 +124,10 @@ All versions are managed in `gradle/libs.versions.toml`.
 
 ## CI
 
-| Workflow | Trigger | Steps |
-|----------|---------|-------|
-| `build.yml` | Push to `main` / PR | Build shared module → Build Android app → Run tests → Upload APK artifact |
-| `pr-check.yml` | PR open / sync | Lint → Build → Test |
+| Workflow | Trigger | Jobs |
+|----------|---------|------|
+| `build.yml` | Push to `main` / PR | Build shared module → Build Android app → Run tests → Upload APK artifact (on push) |
+| `pr-check.yml` | PR open / sync | **lint** (Android Lint) and **build-and-test** (assembleDebug + test) run in parallel |
 
 ---
 
@@ -141,4 +154,5 @@ All versions are managed in `gradle/libs.versions.toml`.
 * Change Service Running description to be more generic and not say "Monitor Downloads for Meta AI Glasses files"
 * Add pre-defined input/filename/EXIF/output setting presets
   * e.g. "Meta AI Glasses Download → DCIM/Meta AI"
+* Add unit tests for `MetadataDetector` (JPEG EXIF parsing and MP4 box parsing)
 
