@@ -463,16 +463,17 @@ fun ProfileEditorDialog(
     onSave: (MonitoringProfile) -> Unit,
 ) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
-    var inputFolder by remember { mutableStateOf(initial?.inputFolder ?: "Download") }
+    var inputFolder by remember { mutableStateOf(initial?.inputFolder ?: stringResource(R.string.profile_default_input_folder)) }
     var filePatterns by remember {
-        mutableStateOf(initial?.filePatterns?.joinToString(", ") ?: "jpg, jpeg, mp4")
+        mutableStateOf(initial?.filePatterns?.joinToString(", ") ?: stringResource(R.string.profile_default_file_patterns))
     }
     var exifFilters by remember {
         mutableStateOf(
-            initial?.exifFilters?.entries?.joinToString(", ") { "${it.key}=${it.value}" } ?: "Make=Meta"
+            initial?.exifFilters?.entries?.joinToString(", ") { "${it.key}=${it.value}" }
+                ?: stringResource(R.string.profile_default_exif_filters)
         )
     }
-    var outputFolder by remember { mutableStateOf(initial?.outputFolder ?: "DCIM/EXIFiler") }
+    var outputFolder by remember { mutableStateOf(initial?.outputFolder ?: stringResource(R.string.profile_default_output_folder)) }
 
     // Validation
     val nameError = name.isBlank()

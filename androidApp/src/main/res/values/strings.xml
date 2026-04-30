@@ -34,6 +34,12 @@
     <string name="profile_field_filters">EXIF filters (e.g. Make=Meta)</string>
     <string name="profile_field_output">Output folder (e.g. DCIM/EXIFiler)</string>
 
+    <!-- Profile default values (MediaStore paths / technical values — must NOT be translated) -->
+    <string name="profile_default_input_folder" translatable="false">Download</string>
+    <string name="profile_default_file_patterns" translatable="false">jpg, jpeg, mp4</string>
+    <string name="profile_default_exif_filters" translatable="false">Make=Meta</string>
+    <string name="profile_default_output_folder" translatable="false">DCIM/EXIFiler</string>
+
     <!-- Actions -->
     <string name="save">Save</string>
     <string name="edit">Edit</string>
