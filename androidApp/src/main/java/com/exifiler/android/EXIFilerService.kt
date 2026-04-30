@@ -19,6 +19,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.exifiler.DetectionResult
 import com.exifiler.MetadataDetector
+import com.exifiler.MonitoringProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -152,15 +153,48 @@ class EXIFilerService : Service() {
             }
         }
 
+        // Load active profiles (fall back to the built-in default if none are configured).
+        val profiles = preferencesManager.getProfiles()
+            .filter { it.isEnabled }
+            .ifEmpty { listOf(MonitoringProfile.DEFAULT) }
+
+        Log.d(TAG, "scanDownloads: ${profiles.size} active profile(s)")
+
+        var totalNew = 0
+        var totalMatched = 0
+
+        for (profile in profiles) {
+            val (newCount, matchCount) = scanForProfile(profile)
+            totalNew += newCount
+            totalMatched += matchCount
+        }
+
+        Log.i(TAG, "scanDownloads: $totalNew new file(s) across all profiles, $totalMatched matched")
+
+        // Surface a scan-summary entry when files were checked but none matched any profile,
+        // so the user can confirm the service is actively scanning.
+        if (totalNew > 0 && totalMatched == 0) {
+            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            preferencesManager.addActivityLogEntry(
+                "$timestamp | Scan: $totalNew file(s) checked — 0 matched any profile criteria"
+            )
+        }
+
+        Log.d(TAG, "-scanDownloads()")
+    }
+
+    /**
+     * Scans [profile]'s input folder for matching files and processes them.
+     * Returns a pair of (newFilesChecked, filesMatched).
+     */
+    private suspend fun scanForProfile(profile: MonitoringProfile): Pair<Int, Int> {
+        val inputPath = profile.inputFolder.trimEnd('/') + "/"
+        val isDownloadFolder = inputPath.equals("Download/", ignoreCase = true)
+
         val candidates = mutableListOf<FileEntry>()
 
-        fun queryCollection(
-            collectionUri: Uri,
-            idColumn: String,
-            nameColumn: String,
-            selection: String?,
-            selectionArgs: Array<String>?
-        ) {
+        fun addFromCursor(collectionUri: Uri, idColumn: String, nameColumn: String,
+                          selection: String?, selectionArgs: Array<String>?) {
             val projection = arrayOf(idColumn, nameColumn)
             contentResolver.query(collectionUri, projection, selection, selectionArgs, null)
                 ?.use { cursor ->
@@ -171,78 +205,80 @@ class EXIFilerService : Service() {
                         val name = cursor.getString(nameCol) ?: continue
                         candidates.add(FileEntry(ContentUris.withAppendedId(collectionUri, id), name))
                     }
-                    Log.d(TAG, "scanDownloads: $collectionUri → ${cursor.count} row(s)")
-                } ?: Log.e(TAG, "scanDownloads: query returned null for $collectionUri")
+                    Log.d(TAG, "scanForProfile[${profile.name}]: $collectionUri → ${cursor.count} row(s)")
+                } ?: Log.e(TAG, "scanForProfile[${profile.name}]: query returned null for $collectionUri")
         }
 
-        // 1. MediaStore.Downloads — files placed in Downloads by download manager / apps.
-        //    Filter by MIME type or extension since Downloads can contain any file type.
-        queryCollection(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME,
-            selection = "(${MediaStore.Downloads.MIME_TYPE} IN (?,?,?,?,?)) " +
-                "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
-                "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
-                "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE)",
-            selectionArgs = arrayOf(
-                "image/jpeg", "image/jpg", "image/pjpeg", "video/mp4", "video/quicktime",
-                "%.jpg", "%.jpeg", "%.mp4"
+        if (isDownloadFolder) {
+            // Downloads collection — filter by MIME type / extension so we don't open every file.
+            addFromCursor(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME,
+                selection = "(${MediaStore.Downloads.MIME_TYPE} IN (?,?,?,?,?)) " +
+                    "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
+                    "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE) " +
+                    "OR (${MediaStore.Downloads.DISPLAY_NAME} LIKE ? COLLATE NOCASE)",
+                selectionArgs = arrayOf(
+                    "image/jpeg", "image/jpg", "image/pjpeg", "video/mp4", "video/quicktime",
+                    "%.jpg", "%.jpeg", "%.mp4"
+                )
             )
-        )
+        }
 
-        // 2. MediaStore.Images — JPEG files in the Download folder.
-        //    On many devices, media files transferred via USB/cable or saved by other apps are
-        //    indexed here (not in Downloads) even when physically located in Download/.
-        queryCollection(
+        // Images collection — some devices index Download-folder media here instead of Downloads.
+        addFromCursor(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME,
             selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?",
-            selectionArgs = arrayOf("Download/%")
+            selectionArgs = arrayOf("$inputPath%")
         )
 
-        // 3. MediaStore.Video — MP4/MOV files in the Download folder (same reasoning as Images).
-        queryCollection(
+        // Video collection — same reasoning.
+        addFromCursor(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
             MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME,
             selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ? AND " +
                 "((${MediaStore.Video.Media.MIME_TYPE} IN (?,?)) " +
                 "OR (${MediaStore.Video.Media.DISPLAY_NAME} LIKE ? COLLATE NOCASE))",
-            selectionArgs = arrayOf("Download/%", "video/mp4", "video/quicktime", "%.mp4")
+            selectionArgs = arrayOf("$inputPath%", "video/mp4", "video/quicktime", "%.mp4")
         )
 
-        Log.d(TAG, "scanDownloads: ${candidates.size} total candidate(s) across all collections")
+        Log.d(TAG, "scanForProfile[${profile.name}]: ${candidates.size} candidate(s)")
 
         var newCount = 0
         var matchCount = 0
         for ((fileUri, name) in candidates) {
+            // Apply file-pattern filter (empty list = accept all supported types).
+            if (profile.filePatterns.isNotEmpty() && !matchesFilePatterns(name, profile.filePatterns)) {
+                Log.v(TAG, "scanForProfile[${profile.name}]: skipping $name — not in filePatterns")
+                continue
+            }
             val uriKey = fileUri.toString()
             if (uriKey in processedUris) {
-                Log.v(TAG, "scanDownloads: skipping already-processed $name")
+                Log.v(TAG, "scanForProfile[${profile.name}]: skipping already-processed $name")
                 continue
             }
             newCount++
-            Log.d(TAG, "scanDownloads: processing $name ($fileUri)")
-            if (processFile(fileUri, name, uriKey)) matchCount++
+            Log.d(TAG, "scanForProfile[${profile.name}]: processing $name ($fileUri)")
+            if (processFile(fileUri, name, uriKey, profile.outputFolder)) matchCount++
         }
+        return newCount to matchCount
+    }
 
-        Log.i(TAG, "scanDownloads: ${candidates.size} candidate(s) found, $newCount new, $matchCount matched")
-
-        // Surface a scan-summary entry in the UI when files were found but none matched,
-        // so the user can confirm the service is actively scanning.
-        if (newCount > 0 && matchCount == 0) {
-            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            preferencesManager.addActivityLogEntry(
-                "$timestamp | Scan: $newCount file(s) checked — 0 matched Meta Glasses criteria"
-            )
+    /** Returns `true` if [filename]'s extension matches any entry in [patterns]. */
+    private fun matchesFilePatterns(filename: String, patterns: List<String>): Boolean {
+        val lower = filename.lowercase()
+        return patterns.any { ext ->
+            val normalised = ext.lowercase().removePrefix("*").removePrefix(".")
+            lower.endsWith(".$normalised")
         }
-
-        Log.d(TAG, "-scanDownloads()")
     }
 
     private suspend fun processFile(
         uri: Uri,
         filename: String,
-        uriKey: String
+        uriKey: String,
+        targetFolder: String
     ): Boolean {
         Log.d(TAG, "processFile: $filename ($uri)")
         return try {
@@ -257,7 +293,6 @@ class EXIFilerService : Service() {
             Log.d(TAG, "processFile: $filename -> $result")
             if (result is DetectionResult.Match) {
                 Log.i(TAG, "processFile: Meta device file detected: $filename (device=${result.deviceName})")
-                val targetFolder = preferencesManager.getTargetFolder()
                 val moveResult = MediaMover.moveFile(
                     context = applicationContext,
                     sourceUri = uri,
