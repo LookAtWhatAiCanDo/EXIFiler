@@ -260,7 +260,7 @@ class EXIFilerService : Service() {
             }
             newCount++
             Log.d(TAG, "scanForProfile[${profile.name}]: processing $name ($fileUri)")
-            if (processFile(fileUri, name, uriKey, profile.outputFolder)) matchCount++
+            if (processFile(fileUri, name, uriKey, profile.inputFolder, profile.outputFolder)) matchCount++
         }
         return newCount to matchCount
     }
@@ -278,6 +278,7 @@ class EXIFilerService : Service() {
         uri: Uri,
         filename: String,
         uriKey: String,
+        sourceFolder: String,
         targetFolder: String
     ): Boolean {
         Log.d(TAG, "processFile: $filename ($uri)")
@@ -305,7 +306,7 @@ class EXIFilerService : Service() {
                     is MediaMover.MoveResult.Success -> {
                         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                         preferencesManager.addActivityLogEntry(
-                            "$timestamp | $filename | Downloads → $targetFolder"
+                            "$timestamp | $filename | $sourceFolder → $targetFolder"
                         )
                         Log.i(TAG, "processFile: moved $filename to $targetFolder")
                         true
@@ -317,7 +318,7 @@ class EXIFilerService : Service() {
                         retryDeleteUris.add(moveResult.sourceUri)
                         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                         preferencesManager.addActivityLogEntry(
-                            "$timestamp | $filename | Copied → $targetFolder (source delete pending — grant Media Management permission)"
+                            "$timestamp | $filename | $sourceFolder → $targetFolder (source delete pending — grant Media Management permission)"
                         )
                         Log.w(TAG, "processFile: $filename copied; source delete pending (will retry on next scan)")
                         true
