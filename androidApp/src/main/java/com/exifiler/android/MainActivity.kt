@@ -19,12 +19,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -192,6 +194,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val MultiSelectBarHeight = 72.dp
+
 @Composable
 fun EXIFilerScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
@@ -216,12 +220,15 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
         uri?.let { viewModel.setTargetFolder(it) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(start = 16.dp, end = 16.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(start = 16.dp, end = 16.dp)
+                // Reserve space at the bottom so the list is never hidden behind the action bar
+                .then(if (multiSelectActive) Modifier.padding(bottom = MultiSelectBarHeight) else Modifier)
+        ) {
         Text(
             text = stringResource(R.string.app_name),
             style = MaterialTheme.typography.headlineMedium,
@@ -337,38 +344,12 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Activity log header with multi-select action bar
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = stringResource(R.string.recent_activity),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-        if (multiSelectActive) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = { viewModel.selectAll() }) {
-                    Text(stringResource(R.string.select_all))
-                }
-                Button(
-                    onClick = { viewModel.deleteSelected() },
-                    enabled = selectedEntries.isNotEmpty()
-                ) {
-                    Text(stringResource(R.string.delete_selected))
-                }
-                TextButton(onClick = { viewModel.cancelMultiSelect() }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        }
+        // Activity log header
+        Text(
+            text = stringResource(R.string.recent_activity),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
         Spacer(modifier = Modifier.height(8.dp))
 
         if (activityLog.isEmpty()) {
@@ -390,7 +371,41 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                 }
             }
         }
-    }
+        } // end Column
+
+        // Multi-select action bar — anchored to the bottom of the screen
+        if (multiSelectActive) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter),
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { viewModel.selectAll() }) {
+                        Text(stringResource(R.string.select_all))
+                    }
+                    Button(
+                        onClick = { viewModel.deleteSelected() },
+                        enabled = selectedEntries.isNotEmpty()
+                    ) {
+                        Text(stringResource(R.string.delete_selected))
+                    }
+                    TextButton(onClick = { viewModel.cancelMultiSelect() }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            }
+        }
+    } // end Box
 }
 
 @Composable
