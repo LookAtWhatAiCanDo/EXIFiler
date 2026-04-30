@@ -12,10 +12,8 @@ import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -29,16 +27,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -48,7 +48,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -67,6 +70,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
+import com.exifiler.MonitoringProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -74,6 +78,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class MainViewModel(application: android.app.Application) : AndroidViewModel(application) {
 
@@ -82,10 +87,10 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
     val serviceEnabled: StateFlow<Boolean> = prefsManager.serviceEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val targetFolder: StateFlow<String> = prefsManager.targetFolderFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferencesManager.DEFAULT_TARGET_FOLDER)
-
     val activityLog: StateFlow<List<String>> = prefsManager.activityLogFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val profiles: StateFlow<List<MonitoringProfile>> = prefsManager.profilesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _multiSelectActive = MutableStateFlow(false)
@@ -93,6 +98,32 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
 
     private val _selectedEntries = MutableStateFlow<Set<String>>(emptySet())
     val selectedEntries: StateFlow<Set<String>> = _selectedEntries.asStateFlow()
+
+    private val _needsManageMedia = MutableStateFlow(false)
+    val needsManageMedia: StateFlow<Boolean> = _needsManageMedia.asStateFlow()
+
+    init {
+        // Atomically seed the default profile on first launch so users immediately
+        // see a profile to work with. The DataStore edit transaction ensures this
+        // is safe even if the ViewModel is initialised concurrently.
+        viewModelScope.launch {
+            prefsManager.ensureDefaultProfile()
+        }
+    }
+
+    /** Call from Activity.onResume() to refresh the MANAGE_MEDIA permission state. */
+    fun refreshManageMediaState(context: Context) {
+        _needsManageMedia.value = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !MediaStore.canManageMedia(context)
+    }
+
+    fun setServiceEnabled(context: Context, enabled: Boolean) {
+        viewModelScope.launch {
+            prefsManager.setServiceEnabled(enabled)
+            if (enabled) ServiceManager.startService(context)
+            else ServiceManager.stopService(context)
+        }
+    }
 
     fun enterMultiSelectMode(entry: String) {
         _selectedEntries.value = setOf(entry)
@@ -132,33 +163,19 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
         }
     }
 
-    private val _needsManageMedia = MutableStateFlow(false)
-    val needsManageMedia: StateFlow<Boolean> = _needsManageMedia.asStateFlow()
-
-    /** Call from Activity.onResume() to refresh the MANAGE_MEDIA permission state. */
-    fun refreshManageMediaState(context: Context) {
-        _needsManageMedia.value = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            !MediaStore.canManageMedia(context)
+    /** Persists a new or edited profile. */
+    fun saveProfile(profile: MonitoringProfile) {
+        viewModelScope.launch { prefsManager.saveProfile(profile) }
     }
 
-    fun setServiceEnabled(context: Context, enabled: Boolean) {
-        viewModelScope.launch {
-            prefsManager.setServiceEnabled(enabled)
-            if (enabled) ServiceManager.startService(context)
-            else ServiceManager.stopService(context)
-        }
+    /** Removes a profile by its id. */
+    fun deleteProfile(id: String) {
+        viewModelScope.launch { prefsManager.deleteProfile(id) }
     }
 
-    fun setTargetFolder(uri: Uri) {
-        viewModelScope.launch {
-            val lastSegment = uri.lastPathSegment ?: ""
-            // SAF tree URIs have the form "primary:DCIM/Folder" or "XXXXX-XXXX:path"
-            val displayPath = when {
-                lastSegment.contains(':') -> lastSegment.substringAfter(':')
-                else -> lastSegment
-            }.ifBlank { AppPreferencesManager.DEFAULT_TARGET_FOLDER }
-            prefsManager.setTargetFolder(displayPath)
-        }
+    /** Toggles the [MonitoringProfile.isEnabled] flag for the given profile. */
+    fun toggleProfile(profile: MonitoringProfile) {
+        saveProfile(profile.copy(isEnabled = !profile.isEnabled))
     }
 }
 
@@ -228,8 +245,8 @@ class MainActivity : ComponentActivity() {
 fun EXIFilerScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val serviceEnabled by viewModel.serviceEnabled.collectAsState()
-    val targetFolder by viewModel.targetFolder.collectAsState()
     val activityLog by viewModel.activityLog.collectAsState()
+    val profiles by viewModel.profiles.collectAsState()
     // Refreshed on every onResume via MainViewModel.refreshManageMediaState()
     val needsManageMedia by viewModel.needsManageMedia.collectAsState()
     val multiSelectActive by viewModel.multiSelectActive.collectAsState()
@@ -248,153 +265,203 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
         }
     }
 
-    val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.setTargetFolder(it) }
+    // Dialog state
+    var showProfileDialog by remember { mutableStateOf(false) }
+    var editingProfile by remember { mutableStateOf<MonitoringProfile?>(null) }
+    var deleteConfirmProfile by remember { mutableStateOf<MonitoringProfile?>(null) }
+
+    if (showProfileDialog) {
+        ProfileEditorDialog(
+            initial = editingProfile,
+            onDismiss = { showProfileDialog = false; editingProfile = null },
+            onSave = { profile ->
+                viewModel.saveProfile(profile)
+                showProfileDialog = false
+                editingProfile = null
+            }
+        )
+    }
+
+    deleteConfirmProfile?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmProfile = null },
+            title = { Text(stringResource(R.string.profile_delete_title)) },
+            text = { Text(stringResource(R.string.profile_delete_message, profile.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteProfile(profile.id)
+                    deleteConfirmProfile = null
+                }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmProfile = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(start = 16.dp, end = 16.dp)
                 // Reserve space at the bottom so the list is never hidden behind the action bar.
                 // Uses the actual measured bar height so navigation insets are accounted for.
-                .then(if (multiSelectActive) Modifier.padding(bottom = multiSelectBarHeightDp) else Modifier)
+                .then(if (multiSelectActive) Modifier.padding(bottom = multiSelectBarHeightDp) else Modifier),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-        Text(
-            text = stringResource(R.string.app_name),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ── Media Management permission banner (API 31+ only, shown until granted) ─────────────
-        // MANAGE_MEDIA lets the app silently delete files it didn't create (e.g. images
-        // transferred via USB that Android indexes under MediaStore.Images rather than Downloads).
-        // Without it, the app copies files to DCIM/EXIFiler but cannot remove the originals.
-        if (needsManageMedia) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
+            item {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
                 )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Media Management permission required",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    Text(
-                        text = "Grant once in Settings so EXIFiler can silently move files without prompting you for every transfer.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA).apply {
-                                        data = Uri.fromParts("package", context.packageName, null)
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ── Media Management permission banner (API 31+ only, shown until granted) ──────────────
+            if (needsManageMedia) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = stringResource(R.string.permission_media_required),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = stringResource(R.string.permission_media_explanation),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA).apply {
+                                                data = Uri.fromParts("package", context.packageName, null)
+                                            }
+                                        )
                                     }
-                                )
+                                }
+                            ) {
+                                Text(stringResource(R.string.grant_in_settings))
                             }
                         }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // ── Service toggle ────────────────────────────────────────────────────────────────────────
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Grant in Settings")
+                        Column {
+                            Text(
+                                text = if (serviceEnabled) stringResource(R.string.service_running)
+                                else stringResource(R.string.service_stopped),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = stringResource(R.string.service_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                        Switch(
+                            checked = serviceEnabled,
+                            onCheckedChange = { viewModel.setServiceEnabled(context, it) }
+                        )
                     }
                 }
+                Spacer(modifier = Modifier.height(24.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
 
-        // Service toggle
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+            // ── Monitoring Profiles header ─────────────────────────────────────────────────────────
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = if (serviceEnabled) stringResource(R.string.service_running)
-                        else stringResource(R.string.service_stopped),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        text = stringResource(R.string.profiles_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Text(
-                        text = "Monitor Downloads for Meta AI Glasses files",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
+                    Button(onClick = {
+                        editingProfile = null
+                        showProfileDialog = true
+                    }) {
+                        Text(stringResource(R.string.profile_add))
+                    }
                 }
-                Switch(
-                    checked = serviceEnabled,
-                    onCheckedChange = { viewModel.setServiceEnabled(context, it) }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // ── Profile list ───────────────────────────────────────────────────────────────────────
+            if (profiles.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.profiles_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            } else {
+                items(profiles) { profile ->
+                    ProfileCard(
+                        profile = profile,
+                        onToggle = { viewModel.toggleProfile(profile) },
+                        onEdit = { editingProfile = profile; showProfileDialog = true },
+                        onDelete = { deleteConfirmProfile = profile }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
+
+            // ── Activity log ───────────────────────────────────────────────────────────────────────
+            item {
+                Text(
+                    text = stringResource(R.string.recent_activity),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
+                Spacer(modifier = Modifier.height(8.dp))
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Target folder
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
+            if (activityLog.isEmpty()) {
+                item {
                     Text(
-                        text = stringResource(R.string.target_folder),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = targetFolder,
-                        style = MaterialTheme.typography.bodyLarge
+                        text = stringResource(R.string.no_activity),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
-                Button(onClick = { folderPickerLauncher.launch(null) }) {
-                    Text(stringResource(R.string.change_folder))
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Activity log header
-        Text(
-            text = stringResource(R.string.recent_activity),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (activityLog.isEmpty()) {
-            Text(
-                text = stringResource(R.string.no_activity),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            )
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            } else {
                 items(activityLog) { entry ->
                     ActivityLogEntry(
                         entry = entry,
@@ -405,8 +472,9 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                     )
                 }
             }
-        }
-        } // end Column
+
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        } // end LazyColumn
 
         // Multi-select action bar — anchored to the bottom of the screen
         if (multiSelectActive) {
@@ -414,7 +482,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    // Measure the true height (including navigation insets) so the Column above
+                    // Measure the true height (including navigation insets) so the LazyColumn above
                     // can reserve exactly the right amount of bottom padding.
                     .onSizeChanged { multiSelectBarHeightPx = it.height },
                 shadowElevation = 8.dp,
@@ -455,6 +523,197 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
             }
         }
     } // end Box
+}
+
+// ── Profile Card ───────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun ProfileCard(
+    profile: MonitoringProfile,
+    onToggle: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (profile.isEnabled) MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = profile.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(checked = profile.isEnabled, onCheckedChange = { onToggle() })
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.profile_input_label, profile.inputFolder),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            Text(
+                text = stringResource(R.string.profile_output_label, profile.outputFolder),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            if (profile.filePatterns.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        R.string.profile_patterns_label,
+                        profile.filePatterns.joinToString(", ")
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+            if (profile.exifFilters.isNotEmpty()) {
+                val filtersText = profile.exifFilters.entries.joinToString(", ") { "${it.key}=${it.value}" }
+                Text(
+                    text = stringResource(R.string.profile_filters_label, filtersText),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onEdit) { Text(stringResource(R.string.edit)) }
+                TextButton(onClick = onDelete) {
+                    Text(
+                        text = stringResource(R.string.delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Profile Add / Edit Dialog ──────────────────────────────────────────────────────────────────
+
+@Composable
+fun ProfileEditorDialog(
+    initial: MonitoringProfile?,
+    onDismiss: () -> Unit,
+    onSave: (MonitoringProfile) -> Unit,
+) {
+    val defaultInputFolder = stringResource(R.string.profile_default_input_folder)
+    val defaultFilePatterns = stringResource(R.string.profile_default_file_patterns)
+    val defaultExifFilters = stringResource(R.string.profile_default_exif_filters)
+    val defaultOutputFolder = stringResource(R.string.profile_default_output_folder)
+
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    var inputFolder by remember { mutableStateOf(initial?.inputFolder ?: defaultInputFolder) }
+    var filePatterns by remember {
+        mutableStateOf(initial?.filePatterns?.joinToString(", ") ?: defaultFilePatterns)
+    }
+    var exifFilters by remember {
+        mutableStateOf(
+            initial?.exifFilters?.entries?.joinToString(", ") { "${it.key}=${it.value}" }
+                ?: defaultExifFilters
+        )
+    }
+    var outputFolder by remember { mutableStateOf(initial?.outputFolder ?: defaultOutputFolder) }
+
+    // Validation
+    val nameError = name.isBlank()
+    val inputError = inputFolder.isBlank()
+    val outputError = outputFolder.isBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (initial == null) stringResource(R.string.profile_add)
+                else stringResource(R.string.profile_edit)
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.profile_field_name)) },
+                    isError = nameError,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = inputFolder,
+                    onValueChange = { inputFolder = it },
+                    label = { Text(stringResource(R.string.profile_field_input)) },
+                    isError = inputError,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = filePatterns,
+                    onValueChange = { filePatterns = it },
+                    label = { Text(stringResource(R.string.profile_field_patterns)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = exifFilters,
+                    onValueChange = { exifFilters = it },
+                    label = { Text(stringResource(R.string.profile_field_filters)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = outputFolder,
+                    onValueChange = { outputFolder = it },
+                    label = { Text(stringResource(R.string.profile_field_output)) },
+                    isError = outputError,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (!nameError && !inputError && !outputError) {
+                        val parsedPatterns = filePatterns
+                            .split(",")
+                            .map { it.trim().lowercase().trimStart('*', '.') }
+                            .filter { it.isNotEmpty() }
+                        val parsedFilters = exifFilters
+                            .split(",")
+                            .mapNotNull { pair ->
+                                val parts = pair.trim().split("=", limit = 2)
+                                if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+                            }
+                            .toMap()
+                        onSave(
+                            MonitoringProfile(
+                                id = initial?.id ?: UUID.randomUUID().toString(),
+                                name = name.trim(),
+                                inputFolder = inputFolder.trim().trimStart('/').trimEnd('/').replace(Regex("/+"), "/"),
+                                filePatterns = parsedPatterns,
+                                exifFilters = parsedFilters,
+                                outputFolder = outputFolder.trim().trimStart('/').trimEnd('/').replace(Regex("/+"), "/"),
+                                isEnabled = initial?.isEnabled ?: true,
+                            )
+                        )
+                    }
+                }
+            ) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
 }
 
 @Composable
