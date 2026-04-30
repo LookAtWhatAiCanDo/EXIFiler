@@ -462,18 +462,23 @@ fun ProfileEditorDialog(
     onDismiss: () -> Unit,
     onSave: (MonitoringProfile) -> Unit,
 ) {
+    val defaultInputFolder = stringResource(R.string.profile_default_input_folder)
+    val defaultFilePatterns = stringResource(R.string.profile_default_file_patterns)
+    val defaultExifFilters = stringResource(R.string.profile_default_exif_filters)
+    val defaultOutputFolder = stringResource(R.string.profile_default_output_folder)
+
     var name by remember { mutableStateOf(initial?.name ?: "") }
-    var inputFolder by remember { mutableStateOf(initial?.inputFolder ?: stringResource(R.string.profile_default_input_folder)) }
+    var inputFolder by remember { mutableStateOf(initial?.inputFolder ?: defaultInputFolder) }
     var filePatterns by remember {
-        mutableStateOf(initial?.filePatterns?.joinToString(", ") ?: stringResource(R.string.profile_default_file_patterns))
+        mutableStateOf(initial?.filePatterns?.joinToString(", ") ?: defaultFilePatterns)
     }
     var exifFilters by remember {
         mutableStateOf(
             initial?.exifFilters?.entries?.joinToString(", ") { "${it.key}=${it.value}" }
-                ?: stringResource(R.string.profile_default_exif_filters)
+                ?: defaultExifFilters
         )
     }
-    var outputFolder by remember { mutableStateOf(initial?.outputFolder ?: stringResource(R.string.profile_default_output_folder)) }
+    var outputFolder by remember { mutableStateOf(initial?.outputFolder ?: defaultOutputFolder) }
 
     // Validation
     val nameError = name.isBlank()
