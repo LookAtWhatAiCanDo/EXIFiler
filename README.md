@@ -37,12 +37,12 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
    - `DetectionResult.Unsupported` — file extension is not handled
 5. On a `Match`, `MediaMover.moveFile()` copies the file to the destination folder via `ContentResolver` and attempts to delete the source. The result is one of three states:
    - `MoveResult.Success` — copy and delete both succeeded
-   - `MoveResult.CopiedDeletePending(sourceUri)` — copy succeeded but delete was denied (e.g. `MANAGE_MEDIA` not yet granted); the URI is queued for retry
+   - `MoveResult.CopiedDeletePending(sourceUri)` — copy succeeded but delete was denied (for example, on Android 12+/API 31+ when `MANAGE_MEDIA` has not yet been granted); the URI is queued for retry
    - `MoveResult.Failure` — copy itself failed
-6. Pending-delete URIs are retried at the start of every subsequent scan, so once the user grants **Manage Media** permission the originals are cleaned up automatically without any user interaction.
+6. Pending-delete URIs are retried at the start of every subsequent scan. On Android 12+/API 31+, if deletion was previously blocked only because **Manage Media** was not granted, those retries can succeed automatically after the user grants that permission. On Android 11/API 30, `MANAGE_MEDIA` does not exist, and the current implementation only retries `contentResolver.delete` (it does not launch a user-confirmed `MediaStore.createDeleteRequest` flow), so originals may remain in `Downloads`.
 7. `MediaScannerHelper` notifies `MediaStore` of the new file so it appears in the gallery immediately.
 8. `BootReceiver` reads the saved `service_enabled` preference via DataStore and restarts the service after a device reboot if the toggle was on.
-9. When `MainActivity` detects that **Manage Media** was just granted (via `onResume`), it calls `ServiceManager.requestScan()` which sends an `ACTION_SCAN_NOW` intent to trigger an immediate retry of any pending deletes.
+9. When `MainActivity` detects that **Manage Media** was just granted (via `onResume`) on supported Android versions, it calls `ServiceManager.requestScan()` which sends an `ACTION_SCAN_NOW` intent to trigger an immediate retry of any pending deletes. On Android 11/API 30, this rescan still occurs, but it does not by itself provide the user-confirmed delete flow needed for many source files.
 10. If files were scanned but none matched, a summary entry (`Scan: N file(s) checked — 0 matched Meta Glasses criteria`) is written to the activity log so the user can confirm the service is actively watching.
 
 ---
