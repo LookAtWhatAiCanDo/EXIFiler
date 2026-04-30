@@ -1,6 +1,7 @@
 package com.exifiler.android
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 private val Context.dataStore by preferencesDataStore(name = "exifiler_prefs")
@@ -17,6 +19,7 @@ private val Context.dataStore by preferencesDataStore(name = "exifiler_prefs")
 class AppPreferencesManager(private val context: Context) {
 
     companion object {
+        private const val TAG = "AppPreferencesManager"
         private val TARGET_FOLDER_KEY = stringPreferencesKey("target_folder")
         private val SERVICE_ENABLED_KEY = booleanPreferencesKey("service_enabled")
         private val ACTIVITY_LOG_KEY = stringPreferencesKey("activity_log")
@@ -139,11 +142,13 @@ class AppPreferencesManager(private val context: Context) {
                         outputFolder = obj.getString("outputFolder"),
                         isEnabled = obj.optBoolean("isEnabled", true),
                     )
-                } catch (_: Exception) {
-                    null // skip malformed entries
+                } catch (e: JSONException) {
+                    Log.w(TAG, "deserializeProfiles: skipping malformed profile at index $i", e)
+                    null
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: JSONException) {
+            Log.e(TAG, "deserializeProfiles: failed to parse profiles JSON", e)
             emptyList()
         }
     }

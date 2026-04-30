@@ -12,6 +12,11 @@
     <string name="notification_title">EXIFiler Active</string>
     <string name="notification_text">Monitoring folders per active profiles</string>
 
+    <!-- Permissions -->
+    <string name="permission_media_required">Media Management permission required</string>
+    <string name="permission_media_explanation">Grant once in Settings so EXIFiler can silently move files without prompting you for every transfer.</string>
+    <string name="grant_in_settings">Grant in Settings</string>
+
     <!-- Monitoring Profiles -->
     <string name="profiles_title">Monitoring Profiles</string>
     <string name="profiles_empty">No profiles yet — tap Add Profile to create one.</string>

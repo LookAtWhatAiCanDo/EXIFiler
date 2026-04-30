@@ -242,13 +242,13 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "Media Management permission required",
+                            text = stringResource(R.string.permission_media_required),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                         Text(
-                            text = "Grant once in Settings so EXIFiler can silently move files without prompting you for every transfer.",
+                            text = stringResource(R.string.permission_media_explanation),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
                         )
@@ -264,7 +264,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                                 }
                             }
                         ) {
-                            Text("Grant in Settings")
+                            Text(stringResource(R.string.grant_in_settings))
                         }
                     }
                 }
@@ -535,7 +535,7 @@ fun ProfileEditorDialog(
                     if (!nameError && !inputError && !outputError) {
                         val parsedPatterns = filePatterns
                             .split(",")
-                            .map { it.trim().lowercase().removePrefix(".").removePrefix("*").removePrefix(".") }
+                            .map { it.trim().lowercase().removePrefix("*").removePrefix(".") }
                             .filter { it.isNotEmpty() }
                         val parsedFilters = exifFilters
                             .split(",")
