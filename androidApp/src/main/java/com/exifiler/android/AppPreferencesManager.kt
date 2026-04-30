@@ -153,7 +153,8 @@ class AppPreferencesManager(private val context: Context) {
                         isEnabled = obj.optBoolean("isEnabled", true),
                     )
                 } catch (e: JSONException) {
-                    Log.w(TAG, "deserializeProfiles: skipping malformed profile at index $i", e)
+                    Log.w(TAG, "deserializeProfiles: skipping malformed profile at index $i " +
+                        "(missing or invalid field: ${e.message})", e)
                     null
                 }
             }
