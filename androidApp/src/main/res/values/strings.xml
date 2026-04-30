@@ -10,4 +10,5 @@
     <string name="notification_channel_name">EXIFiler Service</string>
     <string name="notification_title">EXIFiler Active</string>
     <string name="notification_text">Monitoring Downloads folder</string>
+    <string name="notification_quit_action">Quit</string>
 </resources>

@@ -1,8 +1,10 @@
 package com.exifiler.android
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -102,6 +104,12 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    private val quitReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == EXIFilerService.ACTION_FINISH_ACTIVITY) finish()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -117,6 +125,25 @@ class MainActivity : ComponentActivity() {
                     EXIFilerScreen(viewModel = viewModel)
                 }
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this,
+            quitReceiver,
+            IntentFilter(EXIFilerService.ACTION_FINISH_ACTIVITY),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            unregisterReceiver(quitReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Receiver was not registered; nothing to unregister
         }
     }
 
