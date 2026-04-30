@@ -400,8 +400,10 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                     }
                     // Spacer pushes Select All + Delete Selected to the right
                     Spacer(modifier = Modifier.weight(1f))
-                    // Toggle between Select All / Unselect All based on current selection state
-                    val allSelected = activityLog.isNotEmpty() && selectedEntries.size == activityLog.size
+                    // Toggle between Select All / Unselect All based on current selection state.
+                    // Use containsAll to correctly handle duplicate log entries (Set vs List size
+                    // comparison would fail when the log contains repeated strings).
+                    val allSelected = activityLog.isNotEmpty() && selectedEntries.containsAll(activityLog)
                     TextButton(
                         onClick = {
                             if (allSelected) viewModel.unselectAll() else viewModel.selectAll()
