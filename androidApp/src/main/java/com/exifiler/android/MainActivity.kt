@@ -56,6 +56,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -115,9 +116,12 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
     }
 
     fun deleteSelected() {
-        // Snapshot the current selection immediately so the coroutine always deletes exactly
-        // what the user intended, even if the selection state changes before it executes.
+        // Snapshot the current selection before doing anything else.  The coroutine only
+        // references this local val, so any state changes that happen after this point
+        // (e.g. user re-entering multi-select) never affect which entries are deleted.
         val toDelete = _selectedEntries.value
+        // Clear UI state immediately for a responsive feel; safe because the coroutine
+        // no longer reads _selectedEntries or _multiSelectActive after this point.
         _selectedEntries.value = emptySet()
         _multiSelectActive.value = false
         viewModelScope.launch {
@@ -461,10 +465,18 @@ fun ActivityLogEntry(
         modifier = Modifier
             .fillMaxWidth()
             .then(interactionModifier)
-            // Expose selection state via standard semantics so TalkBack announces
-            // "selected" / "not selected" alongside the text without a redundant
-            // custom contentDescription overriding the visible text.
-            .semantics(mergeDescendants = true) { selected = isSelected }
+            // Standard selection semantics so TalkBack announces "selected" / "not selected"
+            // alongside the visible text.  In normal (non-multi-select) mode, advertise a
+            // long-click action so TalkBack / Switch Access users can also enter multi-select.
+            .semantics(mergeDescendants = true) {
+                selected = isSelected
+                if (!isMultiSelectActive) {
+                    onLongClick(label = "Select") {
+                        onLongClick()
+                        true
+                    }
+                }
+            }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
