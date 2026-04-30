@@ -1,6 +1,7 @@
 # EXIFiler
 
-A Kotlin Multiplatform (KMP) Android app that automatically organises media files produced by **Meta AI Glasses (Ray-Ban Smart Glasses)**. It watches the device's `Downloads` folder in the background and silently moves matching photos and videos to a configurable destination folder (`DCIM/EXIFiler/` by default).
+A Kotlin Multiplatform (KMP) Android app that monitors a device's folder(s) for matching filename(s) and EXIF metadata and moves them to a destination folder.    
+It was originally intended to solve the problem of the **Meta AI App** importing all **Meta AI Glasses** media files to the `Download` folder.  
 
 ---
 
