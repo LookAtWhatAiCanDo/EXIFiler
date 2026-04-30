@@ -61,8 +61,6 @@ class EXIFilerService : Service() {
         const val ACTION_SCAN_NOW = "com.exifiler.android.action.SCAN_NOW"
         /** Intent action sent from the notification Quit button to stop the service. */
         const val ACTION_QUIT = "com.exifiler.android.action.QUIT"
-        /** Broadcast sent to [MainActivity] so it finishes itself when the service quits. */
-        const val ACTION_FINISH_ACTIVITY = "com.exifiler.android.action.FINISH_ACTIVITY"
     }
 
     override fun onCreate() {
@@ -80,7 +78,8 @@ class EXIFilerService : Service() {
             ACTION_QUIT -> serviceScope.launch {
                 withContext(NonCancellable) {
                     preferencesManager.setServiceEnabled(false)
-                    sendBroadcast(Intent(ACTION_FINISH_ACTIVITY).setPackage(packageName))
+                    AppEvents.notifyQuit()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
             }
