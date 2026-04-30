@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -387,20 +388,24 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Cancel — fully left-justified
+                    TextButton(onClick = { viewModel.cancelMultiSelect() }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    // Spacer pushes Select All + Delete Selected to the right
+                    Spacer(modifier = Modifier.weight(1f))
+                    // Select All then Delete Selected — fully right-justified
                     TextButton(onClick = { viewModel.selectAll() }) {
                         Text(stringResource(R.string.select_all))
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = { viewModel.deleteSelected() },
                         enabled = selectedEntries.isNotEmpty()
                     ) {
                         Text(stringResource(R.string.delete_selected))
-                    }
-                    TextButton(onClick = { viewModel.cancelMultiSelect() }) {
-                        Text(stringResource(R.string.cancel))
                     }
                 }
             }
