@@ -58,6 +58,28 @@ object MediaMover {
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             }
 
+            // Check if destination already has a file with the same name.
+            // If so, the file was already copied in a previous scan; skip the copy and
+            // just try to delete the source so it stops re-appearing in Downloads.
+            val destPathForQuery = if (relativeFolder.endsWith("/")) relativeFolder else "$relativeFolder/"
+            val alreadyExists = contentResolver.query(
+                destCollection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                arrayOf(filename, destPathForQuery),
+                null
+            )?.use { it.count > 0 } == true
+
+            if (alreadyExists) {
+                Log.i(TAG, "Destination already contains $filename — skipping copy, attempting source delete")
+                return try {
+                    val deleted = contentResolver.delete(sourceUri, null, null)
+                    if (deleted > 0) MoveResult.Success else MoveResult.CopiedDeletePending(sourceUri)
+                } catch (rse: RecoverableSecurityException) {
+                    MoveResult.CopiedDeletePending(sourceUri)
+                }
+            }
+
             val destUri = contentResolver.insert(destCollection, destValues) ?: run {
                 Log.e(TAG, "Failed to create destination MediaStore entry for $filename")
                 return MoveResult.Failure
