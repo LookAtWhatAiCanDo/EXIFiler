@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -424,6 +425,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     } // end Box
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ActivityLogEntry(
     entry: String,
