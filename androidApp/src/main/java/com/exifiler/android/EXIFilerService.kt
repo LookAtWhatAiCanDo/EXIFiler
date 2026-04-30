@@ -269,7 +269,7 @@ class EXIFilerService : Service() {
     private fun matchesFilePatterns(filename: String, patterns: List<String>): Boolean {
         val lower = filename.lowercase()
         return patterns.any { ext ->
-            val normalised = ext.lowercase().removePrefix("*").removePrefix(".")
+            val normalised = ext.lowercase().trimStart('*', '.')
             lower.endsWith(".$normalised")
         }
     }

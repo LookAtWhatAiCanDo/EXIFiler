@@ -89,6 +89,16 @@ class AppPreferencesManager(private val context: Context) {
         }
     }
 
+    /** Inserts [MonitoringProfile.DEFAULT] atomically if no profiles are stored yet. */
+    suspend fun ensureDefaultProfile() {
+        context.dataStore.edit { prefs ->
+            val current = deserializeProfiles(prefs[PROFILES_KEY] ?: "[]")
+            if (current.isEmpty()) {
+                prefs[PROFILES_KEY] = serializeProfiles(listOf(MonitoringProfile.DEFAULT))
+            }
+        }
+    }
+
     /** Removes the profile with the given [id]; no-op if it does not exist. */
     suspend fun deleteProfile(id: String) {
         context.dataStore.edit { prefs ->

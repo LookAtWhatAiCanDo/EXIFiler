@@ -78,11 +78,11 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
     val needsManageMedia: StateFlow<Boolean> = _needsManageMedia.asStateFlow()
 
     init {
-        // Seed the default profile on first launch so users immediately see a profile to work with.
+        // Atomically seed the default profile on first launch so users immediately
+        // see a profile to work with. The DataStore edit transaction ensures this
+        // is safe even if the ViewModel is initialised concurrently.
         viewModelScope.launch {
-            if (prefsManager.getProfiles().isEmpty()) {
-                prefsManager.saveProfile(MonitoringProfile.DEFAULT)
-            }
+            prefsManager.ensureDefaultProfile()
         }
     }
 
@@ -535,7 +535,7 @@ fun ProfileEditorDialog(
                     if (!nameError && !inputError && !outputError) {
                         val parsedPatterns = filePatterns
                             .split(",")
-                            .map { it.trim().lowercase().removePrefix("*").removePrefix(".") }
+                            .map { it.trim().lowercase().trimStart('*', '.') }
                             .filter { it.isNotEmpty() }
                         val parsedFilters = exifFilters
                             .split(",")
