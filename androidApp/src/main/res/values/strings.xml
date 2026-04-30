@@ -10,6 +10,7 @@
     <string name="notification_channel_name">EXIFiler Service</string>
     <string name="notification_title">EXIFiler Active</string>
     <string name="notification_text">Monitoring Downloads folder</string>
+    <string name="notification_quit_action">Quit</string>
     <string name="select_all">Select All</string>
     <string name="unselect_all">Unselect All</string>
     <string name="delete_selected">Delete Selected</string>
