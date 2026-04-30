@@ -11,6 +11,7 @@
     <string name="notification_channel_name">EXIFiler Service</string>
     <string name="notification_title">EXIFiler Active</string>
     <string name="notification_text">Monitoring folders per active profiles</string>
+    <string name="notification_quit_action">Quit</string>
 
     <!-- Permissions -->
     <string name="permission_media_required">Media Management permission required</string>
