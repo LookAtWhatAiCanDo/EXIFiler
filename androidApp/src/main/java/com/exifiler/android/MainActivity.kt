@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,18 +32,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -53,6 +59,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class MainViewModel(application: android.app.Application) : AndroidViewModel(application) {
@@ -67,6 +74,40 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
 
     val activityLog: StateFlow<List<String>> = prefsManager.activityLogFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _multiSelectActive = MutableStateFlow(false)
+    val multiSelectActive: StateFlow<Boolean> = _multiSelectActive.asStateFlow()
+
+    private val _selectedEntries = MutableStateFlow<Set<String>>(emptySet())
+    val selectedEntries: StateFlow<Set<String>> = _selectedEntries.asStateFlow()
+
+    fun enterMultiSelectMode(entry: String) {
+        _selectedEntries.value = setOf(entry)
+        _multiSelectActive.value = true
+    }
+
+    fun toggleSelection(entry: String) {
+        _selectedEntries.update { current ->
+            if (entry in current) current - entry else current + entry
+        }
+    }
+
+    fun selectAll() {
+        _selectedEntries.value = activityLog.value.toSet()
+    }
+
+    fun cancelMultiSelect() {
+        _selectedEntries.value = emptySet()
+        _multiSelectActive.value = false
+    }
+
+    fun deleteSelected() {
+        viewModelScope.launch {
+            prefsManager.removeActivityLogEntries(_selectedEntries.value)
+            _selectedEntries.value = emptySet()
+            _multiSelectActive.value = false
+        }
+    }
 
     private val _needsManageMedia = MutableStateFlow(false)
     val needsManageMedia: StateFlow<Boolean> = _needsManageMedia.asStateFlow()
@@ -159,6 +200,15 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     val activityLog by viewModel.activityLog.collectAsState()
     // Refreshed on every onResume via MainViewModel.refreshManageMediaState()
     val needsManageMedia by viewModel.needsManageMedia.collectAsState()
+    val multiSelectActive by viewModel.multiSelectActive.collectAsState()
+    val selectedEntries by viewModel.selectedEntries.collectAsState()
+
+    // Auto-exit multi-select if the log becomes empty (e.g. after deleting all entries)
+    LaunchedEffect(activityLog) {
+        if (activityLog.isEmpty() && multiSelectActive) {
+            viewModel.cancelMultiSelect()
+        }
+    }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -287,12 +337,38 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Activity log
-        Text(
-            text = stringResource(R.string.recent_activity),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
+        // Activity log header with multi-select action bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.recent_activity),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        if (multiSelectActive) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = { viewModel.selectAll() }) {
+                    Text(stringResource(R.string.select_all))
+                }
+                Button(
+                    onClick = { viewModel.deleteSelected() },
+                    enabled = selectedEntries.isNotEmpty()
+                ) {
+                    Text(stringResource(R.string.delete_selected))
+                }
+                TextButton(onClick = { viewModel.cancelMultiSelect() }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(8.dp))
 
         if (activityLog.isEmpty()) {
@@ -304,7 +380,13 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(activityLog) { entry ->
-                    ActivityLogEntry(entry = entry)
+                    ActivityLogEntry(
+                        entry = entry,
+                        isMultiSelectActive = multiSelectActive,
+                        isSelected = selectedEntries.contains(entry),
+                        onLongClick = { viewModel.enterMultiSelectMode(entry) },
+                        onCheckedChange = { viewModel.toggleSelection(entry) }
+                    )
                 }
             }
         }
@@ -312,13 +394,45 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-fun ActivityLogEntry(entry: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = entry,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
+fun ActivityLogEntry(
+    entry: String,
+    isMultiSelectActive: Boolean,
+    isSelected: Boolean,
+    onLongClick: () -> Unit,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val entryDescription = if (isSelected) {
+        stringResource(R.string.entry_selected_description, entry)
+    } else {
+        entry
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { if (isMultiSelectActive) onCheckedChange(!isSelected) },
+                onLongClick = { if (!isMultiSelectActive) onLongClick() }
+            )
+            .semantics { contentDescription = entryDescription }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (isMultiSelectActive) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = onCheckedChange
+                )
+            }
+            Text(
+                text = entry,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .weight(1f)
+            )
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
     }
 }
