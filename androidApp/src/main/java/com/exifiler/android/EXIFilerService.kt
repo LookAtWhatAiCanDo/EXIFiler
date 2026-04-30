@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -49,6 +50,8 @@ class EXIFilerService : Service() {
         private const val TAG = "EXIFilerService"
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "exifiler_service_channel"
+        private const val DELETE_CHANNEL_ID = "exifiler_delete_batch"
+        private const val DELETE_NOTIFICATION_ID = 1002
     }
 
     override fun onCreate() {
@@ -74,15 +77,18 @@ class EXIFilerService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            getString(R.string.notification_channel_name),
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "EXIFiler background service notifications"
-        }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW).apply {
+                description = "EXIFiler background service notifications"
+            }
+        )
+        // Channel for the one-time batch-delete approval on API 30 (Android 11)
+        manager.createNotificationChannel(
+            NotificationChannel(DELETE_CHANNEL_ID, "Remove originals from Downloads", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Tap to approve removal of original files from Downloads (one-time per scan)"
+            }
+        )
     }
 
     private fun buildNotification(): Notification {
@@ -187,6 +193,10 @@ class EXIFilerService : Service() {
 
         Log.d(TAG, "scanDownloads: ${candidates.size} total candidate(s) across all collections")
 
+        // Collect URIs where the copy succeeded but we couldn't delete the original.
+        // These are batched into a single system dialog at the end of the scan (API 30 only).
+        val pendingDeleteUris = mutableListOf<Uri>()
+
         var newCount = 0
         var matchCount = 0
         for ((fileUri, name) in candidates) {
@@ -197,7 +207,7 @@ class EXIFilerService : Service() {
             }
             newCount++
             Log.d(TAG, "scanDownloads: processing $name ($fileUri)")
-            if (processFile(fileUri, name, uriKey)) matchCount++
+            if (processFile(fileUri, name, uriKey, pendingDeleteUris)) matchCount++
         }
 
         Log.i(TAG, "scanDownloads: ${candidates.size} candidate(s) found, $newCount new, $matchCount matched")
@@ -210,10 +220,37 @@ class EXIFilerService : Service() {
                 "$timestamp | Scan: $newCount file(s) checked — 0 matched Meta Glasses criteria"
             )
         }
+
+        // On API 30 (Android 11), MANAGE_MEDIA doesn't exist.  Batch all pending deletes into
+        // a SINGLE system dialog — one tap covers all files instead of one dialog per file.
+        if (pendingDeleteUris.isNotEmpty()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val deletePi = MediaStore.createDeleteRequest(contentResolver, pendingDeleteUris)
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val notification = NotificationCompat.Builder(this, DELETE_CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle("EXIFiler: tap to remove originals from Downloads")
+                    .setContentText("${pendingDeleteUris.size} file(s) already copied to DCIM/EXIFiler — tap to delete from Downloads")
+                    .setContentIntent(deletePi)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .build()
+                nm.notify(DELETE_NOTIFICATION_ID, notification)
+                Log.w(TAG, "scanDownloads: ${pendingDeleteUris.size} source(s) need user approval to delete — notification shown")
+            } else {
+                Log.w(TAG, "scanDownloads: ${pendingDeleteUris.size} source(s) could not be deleted (API 29 + legacy storage issue?)")
+            }
+        }
+
         Log.d(TAG, "-scanDownloads()")
     }
 
-    private suspend fun processFile(uri: Uri, filename: String, uriKey: String): Boolean {
+    private suspend fun processFile(
+        uri: Uri,
+        filename: String,
+        uriKey: String,
+        pendingDeleteUris: MutableList<Uri>
+    ): Boolean {
         Log.d(TAG, "processFile: $filename ($uri)")
         return try {
             val inputStream = contentResolver.openInputStream(uri) ?: run {
@@ -234,18 +271,32 @@ class EXIFilerService : Service() {
                     filename = filename,
                     targetFolder = targetFolder
                 )
-                if (moveResult) {
-                    processedUris[uriKey] = Unit
-                    val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                        .format(Date())
-                    preferencesManager.addActivityLogEntry(
-                        "$timestamp | $filename | Downloads → $targetFolder"
-                    )
-                    Log.i(TAG, "processFile: moved $filename to $targetFolder")
-                    true
-                } else {
-                    Log.e(TAG, "processFile: move failed for $filename")
-                    false
+                // Mark processed regardless of delete outcome so we don't re-copy on next scan
+                processedUris[uriKey] = Unit
+                when (moveResult) {
+                    is MediaMover.MoveResult.Success -> {
+                        val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                        preferencesManager.addActivityLogEntry(
+                            "$timestamp | $filename | Downloads → $targetFolder"
+                        )
+                        Log.i(TAG, "processFile: moved $filename to $targetFolder")
+                        true
+                    }
+                    is MediaMover.MoveResult.CopiedDeletePending -> {
+                        // Copy succeeded but delete needs user approval (API 30 only).
+                        // Accumulate for the end-of-scan batch notification.
+                        pendingDeleteUris.add(moveResult.sourceUri)
+                        val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                        preferencesManager.addActivityLogEntry(
+                            "$timestamp | $filename | Copied → $targetFolder (tap notification to remove from Downloads)"
+                        )
+                        Log.w(TAG, "processFile: $filename copied but delete pending user approval")
+                        true
+                    }
+                    is MediaMover.MoveResult.Failure -> {
+                        Log.e(TAG, "processFile: move failed for $filename")
+                        false
+                    }
                 }
             } else {
                 // Mark as processed so we don't re-scan it on every observer callback

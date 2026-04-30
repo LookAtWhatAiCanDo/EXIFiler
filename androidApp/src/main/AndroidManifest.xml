@@ -7,6 +7,8 @@
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- MANAGE_MEDIA (API 31+): allows silent deletion of media files not owned by this app. -->
+    <uses-permission android:name="android.permission.MANAGE_MEDIA" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -17,7 +19,8 @@
         android:icon="@drawable/ic_notification"
         android:theme="@style/Theme.EXIFiler"
         android:allowBackup="true"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true">
 
         <activity
             android:name=".MainActivity"

@@ -1,8 +1,5 @@
 package com.exifiler.android
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.RecoverableSecurityException
 import android.content.ContentValues
 import android.content.Context
@@ -11,23 +8,31 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
-import androidx.core.app.NotificationCompat
 
 object MediaMover {
 
     private const val TAG = "MediaMover"
-    private const val DELETE_CHANNEL_ID = "exifiler_delete_approval"
 
     /**
      * Moves a file from its current URI to the target folder using MediaStore scoped storage APIs.
-     * Returns true on success.
+     *
+     * Deletion of the source file requires one of:
+     *  - API 29: `requestLegacyExternalStorage` flag in the manifest (declared).
+     *  - API 31+: `MANAGE_MEDIA` permission granted by the user in Settings (one-time).
+     *
+     * On API 30 (the only version where neither mechanism applies automatically), deletion of
+     * files not owned by this app will fail with [RecoverableSecurityException]. The caller
+     * ([EXIFilerService]) collects such URIs and issues a single [MediaStore.createDeleteRequest]
+     * batch at the end of each scan — one system dialog covers all files, not one per file.
+     *
+     * @return A [MoveResult] indicating success/failure and whether the source delete succeeded.
      */
     suspend fun moveFile(
         context: Context,
         sourceUri: Uri,
         filename: String,
         targetFolder: String
-    ): Boolean {
+    ): MoveResult {
         return try {
             val contentResolver = context.contentResolver
 
@@ -55,7 +60,7 @@ object MediaMover {
 
             val destUri = contentResolver.insert(destCollection, destValues) ?: run {
                 Log.e(TAG, "Failed to create destination MediaStore entry for $filename")
-                return false
+                return MoveResult.Failure
             }
 
             // Copy bytes — handle null streams explicitly to avoid data loss
@@ -63,14 +68,14 @@ object MediaMover {
             if (inputStream == null) {
                 Log.e(TAG, "Failed to open input stream for $filename")
                 contentResolver.delete(destUri, null, null)
-                return false
+                return MoveResult.Failure
             }
             val outputStream = contentResolver.openOutputStream(destUri)
             if (outputStream == null) {
                 Log.e(TAG, "Failed to open destination output stream for $filename")
                 inputStream.close()
                 contentResolver.delete(destUri, null, null)
-                return false
+                return MoveResult.Failure
             }
             inputStream.use { input ->
                 outputStream.use { output ->
@@ -78,73 +83,62 @@ object MediaMover {
                 }
             }
 
-            // Delete source — the file may be owned by another app, in which case Android
-            // throws RecoverableSecurityException. We catch it specifically here (before the
-            // outer Exception handler) so a successful copy is never silently rolled back and
-            // the file is not re-processed on every subsequent scan.
-            try {
-                val deleted = contentResolver.delete(sourceUri, null, null)
-                if (deleted == 0) {
-                    Log.w(TAG, "Source file $filename could not be deleted after copy — " +
-                        "the file may appear duplicated in Downloads. Manual cleanup may be required.")
-                }
-            } catch (rse: RecoverableSecurityException) {
-                Log.w(TAG, "RecoverableSecurityException deleting $filename — requesting user approval via notification", rse)
-                requestDeleteApproval(context, sourceUri, filename, rse)
-                // Copy succeeded; the original will be deleted when the user taps the notification.
-            }
-
             // Notify media scanner of new file
             MediaScannerHelper.scan(context, destUri)
 
-            true
+            // Delete source — requires MANAGE_MEDIA (API 31+) or requestLegacyExternalStorage
+            // (API 29).  On API 30 the system throws RecoverableSecurityException for files not
+            // owned by this app; the caller must handle those with a batch createDeleteRequest.
+            try {
+                val deleted = contentResolver.delete(sourceUri, null, null)
+                if (deleted == 0) {
+                    Log.w(TAG, "delete() returned 0 for $filename — original may remain in Downloads")
+                    MoveResult.CopiedDeletePending(sourceUri)
+                } else {
+                    Log.d(TAG, "Moved $filename → $relativeFolder")
+                    MoveResult.Success
+                }
+            } catch (rse: RecoverableSecurityException) {
+                // Copy is done; we just can't delete the original without user consent.
+                // Return the source URI so the caller can batch-request deletion.
+                Log.w(TAG, "RecoverableSecurityException deleting $filename — will batch-request delete", rse)
+                MoveResult.CopiedDeletePending(sourceUri)
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error moving file $filename", e)
-            false
+            MoveResult.Failure
         }
     }
 
+    /** Result of a [moveFile] call. */
+    sealed class MoveResult {
+        /** Copy AND delete both succeeded — source is gone. */
+        data object Success : MoveResult()
+
+        /** Copy succeeded but delete was denied; [sourceUri] should be batch-deleted. */
+        data class CopiedDeletePending(val sourceUri: Uri) : MoveResult()
+
+        /** Copy itself failed — file was not moved. */
+        data object Failure : MoveResult()
+    }
+
     /**
-     * Shows a high-priority notification whose tap action is the system-provided delete-approval
-     * dialog. On API 30+ we use [MediaStore.createDeleteRequest]; on API 29 we use the
-     * [RecoverableSecurityException.userAction] pending intent directly.
+     * On API 30 (Android 11), `MANAGE_MEDIA` doesn't exist yet, so we batch all pending source
+     * URIs into a single [MediaStore.createDeleteRequest] and launch it from a notification that
+     * the user taps **once** — not once per file.
+     *
+     * On API 31+ this method should never be needed because MANAGE_MEDIA allows silent deletion.
+     * It is provided as a safety net only.
      */
-    private fun requestDeleteApproval(
-        context: Context,
-        uri: Uri,
-        filename: String,
-        rse: RecoverableSecurityException
-    ) {
-        val deletePi: PendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            MediaStore.createDeleteRequest(context.contentResolver, listOf(uri))
+    @Suppress("unused")
+    fun canManageMediaSilently(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaStore.canManageMedia(context)
         } else {
-            // userAction or its actionIntent can be null in rare cases; fall back gracefully.
-            rse.userAction?.actionIntent ?: run {
-                Log.w(TAG, "RecoverableSecurityException.userAction is null for $filename — cannot request approval")
-                return
-            }
+            // API 29 relies on requestLegacyExternalStorage; API 30 cannot do it silently.
+            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
         }
-
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (nm.getNotificationChannel(DELETE_CHANNEL_ID) == null) {
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    DELETE_CHANNEL_ID,
-                    "Delete originals from Downloads",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-            )
-        }
-
-        val notification = NotificationCompat.Builder(context, DELETE_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("EXIFiler: tap to remove original from Downloads")
-            .setContentText(filename)
-            .setContentIntent(deletePi)
-            .setAutoCancel(true)
-            .build()
-
-        nm.notify(uri.toString().hashCode(), notification)
     }
 
     private fun guessMimeType(filename: String): String {

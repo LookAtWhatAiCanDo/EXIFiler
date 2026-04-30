@@ -1,11 +1,15 @@
 package com.exifiler.android
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,14 +41,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -61,7 +68,16 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
     val activityLog: StateFlow<List<String>> = prefsManager.activityLogFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun setServiceEnabled(context: android.content.Context, enabled: Boolean) {
+    private val _needsManageMedia = MutableStateFlow(false)
+    val needsManageMedia: StateFlow<Boolean> = _needsManageMedia.asStateFlow()
+
+    /** Call from Activity.onResume() to refresh the MANAGE_MEDIA permission state. */
+    fun refreshManageMediaState(context: Context) {
+        _needsManageMedia.value = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !MediaStore.canManageMedia(context)
+    }
+
+    fun setServiceEnabled(context: Context, enabled: Boolean) {
         viewModelScope.launch {
             prefsManager.setServiceEnabled(enabled)
             if (enabled) ServiceManager.startService(context)
@@ -104,6 +120,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Refresh MANAGE_MEDIA state in case the user just came back from Settings
+        viewModel.refreshManageMediaState(this)
+    }
+
     private fun requestRequiredPermissions() {
         val permissions = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -125,10 +147,12 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun EXIFilerScreen(viewModel: MainViewModel) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val serviceEnabled by viewModel.serviceEnabled.collectAsState()
     val targetFolder by viewModel.targetFolder.collectAsState()
     val activityLog by viewModel.activityLog.collectAsState()
+    // Refreshed on every onResume via MainViewModel.refreshManageMediaState()
+    val needsManageMedia by viewModel.needsManageMedia.collectAsState()
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -148,6 +172,49 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(24.dp))
+
+        // ── Media Management permission banner (API 31+ only, shown until granted) ─────────────
+        // MANAGE_MEDIA lets the app silently delete files it didn't create (e.g. images
+        // transferred via USB that Android indexes under MediaStore.Images rather than Downloads).
+        // Without it, the app copies files to DCIM/EXIFiler but cannot remove the originals.
+        if (needsManageMedia) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Media Management permission required",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = "Grant once in Settings so EXIFiler can silently move files without prompting you for every transfer.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA).apply {
+                                        data = Uri.fromParts("package", context.packageName, null)
+                                    }
+                                )
+                            }
+                        }
+                    ) {
+                        Text("Grant in Settings")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // Service toggle
         Card(
