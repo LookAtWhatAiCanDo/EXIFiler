@@ -48,7 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -224,7 +224,9 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     val selectedEntries by viewModel.selectedEntries.collectAsState()
 
     // Track the actual rendered height of the action bar so the list never scrolls behind it.
-    var multiSelectBarHeightPx by remember { mutableIntStateOf(0) }
+    // rememberSaveable preserves the last-known height across config changes (e.g. rotation)
+    // so the list keeps the correct padding until onSizeChanged fires with the new measurement.
+    var multiSelectBarHeightPx by rememberSaveable { mutableIntStateOf(0) }
     val multiSelectBarHeightDp = with(LocalDensity.current) { multiSelectBarHeightPx.toDp() }
 
     // Auto-exit multi-select if the log becomes empty (e.g. after deleting all entries)
@@ -457,6 +459,8 @@ fun ActivityLogEntry(
     val interactionModifier = if (isMultiSelectActive) {
         Modifier.clickable { onCheckedChange(!isSelected) }
     } else {
+        // Handles physical long-press for sighted users.  Accessibility services (TalkBack,
+        // Switch Access) use the semantics onLongClick action declared below, not pointer events.
         Modifier.pointerInput(Unit) {
             detectTapGestures(onLongPress = { onLongClick() })
         }
