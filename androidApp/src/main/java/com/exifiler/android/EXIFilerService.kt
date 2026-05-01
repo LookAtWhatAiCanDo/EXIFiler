@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -57,6 +58,7 @@ class EXIFilerService : Service() {
     companion object {
         private const val TAG = "EXIFilerService"
         private const val NOTIFICATION_ID = 1001
+        private const val NOTIFICATION_ID_DELETE_PENDING = 1002
         private const val CHANNEL_ID = "exifiler_service_channel"
         /** Intent action that triggers an immediate scan (e.g. after MANAGE_MEDIA is granted). */
         const val ACTION_SCAN_NOW = "com.exifiler.android.action.SCAN_NOW"
@@ -129,6 +131,24 @@ class EXIFilerService : Service() {
             .build()
     }
 
+    /**
+     * Posts a notification whose content intent fires a [MediaStore.createDeleteRequest] batch.
+     * With [MediaStore.canManageMedia] true the system silently approves (no dialog on tap).
+     * Without it, the user sees a system confirmation dialog after tapping.
+     */
+    private fun showDeletePendingNotification(deleteIntent: PendingIntent, count: Int) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val text = resources.getQuantityString(R.plurals.notification_delete_pending_text, count, count)
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.notification_delete_pending_title))
+            .setContentText(text)
+            .setContentIntent(deleteIntent)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(NOTIFICATION_ID_DELETE_PENDING, notification)
+    }
+
     private fun registerDownloadsObserver() {
         // Watch all three collections: some devices index Download-folder media files under
         // Images/Video rather than Downloads, so we need observers on all three.
@@ -156,20 +176,39 @@ class EXIFilerService : Service() {
     private suspend fun scanDownloads() = scanMutex.withLock {
         Log.d(TAG, "+scanDownloads()")
 
-        // Retry source deletions that failed in a previous scan (e.g. MANAGE_MEDIA was just granted).
-        val retryIter = retryDeleteUris.iterator()
-        while (retryIter.hasNext()) {
-            val uri = retryIter.next()
-            try {
-                if (contentResolver.delete(uri, null, null) > 0) {
-                    Log.i(TAG, "scanDownloads: retroactively deleted source $uri")
-                    retryIter.remove()
+        // Retry source deletions that failed in a previous scan.
+        // Per https://developer.android.com/training/data-storage/shared/media#management-permission,
+        // even with MANAGE_MEDIA granted, deletion of non-owned files must go through
+        // createDeleteRequest() — the permission only suppresses the user confirmation dialog.
+        // On API 31+ with canManageMedia(): issue a batch createDeleteRequest() via notification
+        // (no dialog shown when tapped, because MANAGE_MEDIA is granted).
+        // On earlier APIs or without MANAGE_MEDIA: attempt direct delete, which works for files
+        // the app owns or on API 29 via requestLegacyExternalStorage.
+        if (retryDeleteUris.isNotEmpty()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S /* API 31 */ && MediaStore.canManageMedia(this@EXIFilerService)) {
+                val uriList = retryDeleteUris.toList()
+                val deleteIntent = MediaStore.createDeleteRequest(contentResolver, uriList)
+                showDeletePendingNotification(deleteIntent, uriList.size)
+                // Clear the set — the notification's PendingIntent carries out the deletion.
+                // With MANAGE_MEDIA the system silently approves (no dialog on tap).
+                retryDeleteUris.clear()
+                Log.i(TAG, "scanDownloads: issued createDeleteRequest for ${uriList.size} source(s)")
+            } else {
+                val retryIter = retryDeleteUris.iterator()
+                while (retryIter.hasNext()) {
+                    val uri = retryIter.next()
+                    try {
+                        if (contentResolver.delete(uri, null, null) > 0) {
+                            Log.i(TAG, "scanDownloads: retroactively deleted source $uri")
+                            retryIter.remove()
+                        }
+                    } catch (_: RecoverableSecurityException) {
+                        // Still no permission — keep in set for next scan.
+                    } catch (e: Exception) {
+                        Log.w(TAG, "scanDownloads: giving up on pending delete for $uri", e)
+                        retryIter.remove()
+                    }
                 }
-            } catch (_: RecoverableSecurityException) {
-                // Still no permission — keep in set for next scan.
-            } catch (e: Exception) {
-                Log.w(TAG, "scanDownloads: giving up on pending delete for $uri", e)
-                retryIter.remove()
             }
         }
 
@@ -316,7 +355,7 @@ class EXIFilerService : Service() {
 
             Log.d(TAG, "processFile: $filename -> $result")
             if (result is DetectionResult.Match) {
-                Log.i(TAG, "processFile: Meta device file detected: $filename (device=${result.deviceName})")
+                Log.i(TAG, "processFile: matched profile filter — moving $filename (device=${result.deviceName})")
                 val moveResult = MediaMover.moveFile(
                     context = applicationContext,
                     sourceUri = uri,
@@ -335,9 +374,11 @@ class EXIFilerService : Service() {
                         true
                     }
                     is MediaMover.MoveResult.CopiedDeletePending -> {
-                        // Copy succeeded but delete was denied (no MANAGE_MEDIA / API 30).
-                        // Enqueue the source URI so the retry loop at the top of the next scan
-                        // can clean it up once permission is available.
+                        // Copy succeeded but delete was denied. Enqueue the source URI so the
+                        // retry loop at the top of the next scan can clean it up:
+                        //   - API 31+ with MANAGE_MEDIA: via createDeleteRequest() notification
+                        //     (no dialog shown because MANAGE_MEDIA suppresses it).
+                        //   - Otherwise: via direct delete (owned files / API 29 legacy mode).
                         retryDeleteUris.add(moveResult.sourceUri)
                         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                         preferencesManager.addActivityLogEntry(

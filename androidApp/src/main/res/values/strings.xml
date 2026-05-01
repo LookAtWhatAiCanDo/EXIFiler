@@ -41,6 +41,13 @@
     <string name="profile_default_exif_filters" translatable="false">Make=Meta</string>
     <string name="profile_default_output_folder" translatable="false">DCIM/EXIFiler</string>
 
+    <!-- Delete-pending notification (shown when source files need removal via createDeleteRequest) -->
+    <string name="notification_delete_pending_title">Source files ready to remove</string>
+    <plurals name="notification_delete_pending_text">
+        <item quantity="one">Tap to remove %d source file from Downloads</item>
+        <item quantity="other">Tap to remove %d source files from Downloads</item>
+    </plurals>
+
     <!-- Actions -->
     <string name="save">Save</string>
     <string name="edit">Edit</string>
