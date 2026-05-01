@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="EXIFiler - Automatic media organizer for Android. Watches any folder you configure and moves matching files based on EXIF metadata and file content.">
-    <title>EXIFiler - Smart Media Organizer for Android</title>
+    <meta name="description" content="EXIFiler - Automatic media organizer for Android and iOS (coming soon). Watches any folder you configure and moves matching files based on EXIF metadata and file content.">
+    <title>EXIFiler - Smart Media Organizer</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -17,8 +17,9 @@
 
     <main class="container">
         <section class="hero">
-            <h2>Smart Background Service for Android</h2>
+            <h2>Smart Background Media Service</h2>
             <p>EXIFiler monitors any folder you configure and automatically moves matching photos and videos to a dedicated destination — no manual sorting needed. Originally built for Meta AI Glasses media, it works with any device or camera whose files can be identified by EXIF metadata or embedded file properties.</p>
+            <p><strong>Available now on Android.</strong> iOS support is coming soon.</p>
             <div class="cta-buttons">
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases" class="btn btn-primary">Download App</a>
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler" class="btn btn-secondary">View on GitHub</a>
@@ -56,7 +57,7 @@
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">🧩</div>
                     <h3>Kotlin Multiplatform</h3>
-                    <p>Built with KMP architecture for future iOS support.</p>
+                    <p>Detection logic is shared across platforms via KMP. Android is available today; iOS support is coming soon.</p>
                 </div>
             </div>
         </section>
@@ -116,7 +117,7 @@
         </section>
 
         <section class="requirements">
-            <h2>Requirements</h2>
+            <h2>Requirements — Android</h2>
             <ul>
                 <li><strong>Android 10+</strong> (API level 29 or higher)</li>
                 <li><strong>Access required:</strong>
@@ -130,7 +131,7 @@
         </section>
 
         <section class="installation">
-            <h2>Installation</h2>
+            <h2>Installation — Android</h2>
             <ol>
                 <li>Download the latest APK from the <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases">Releases page</a></li>
                 <li>Install the APK on your Android device</li>
@@ -142,7 +143,7 @@
 
         <section class="tech-stack">
             <h2>Technology</h2>
-            <p>EXIFiler is built with modern Android development practices:</p>
+            <p>EXIFiler is built with a Kotlin Multiplatform architecture designed for Android today and iOS soon:</p>
             <ul>
                 <li><strong>Kotlin Multiplatform (KMP)</strong> — shared detection logic across platforms</li>
                 <li><strong>Jetpack Compose</strong> — modern declarative UI</li>
