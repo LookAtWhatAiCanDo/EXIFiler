@@ -176,37 +176,24 @@ class EXIFilerService : Service() {
     private suspend fun scanDownloads() = scanMutex.withLock {
         Log.d(TAG, "+scanDownloads()")
 
-        // Retry source deletions that failed in a previous scan.
-        // Per https://developer.android.com/training/data-storage/shared/media#management-permission,
-        // deletion of non-owned files must always go through createDeleteRequest() on API 30+.
-        // MANAGE_MEDIA only suppresses the confirmation dialog — without it the system still shows
-        // one. On API 29, requestLegacyExternalStorage lets direct delete work.
-        if (retryDeleteUris.isNotEmpty()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R /* API 30 */) {
-                val uriList = retryDeleteUris.toList()
-                val deleteIntent = MediaStore.createDeleteRequest(contentResolver, uriList)
-                showDeletePendingNotification(deleteIntent, uriList.size)
-                // Clear the set — the notification's PendingIntent carries out the deletion.
-                // With MANAGE_MEDIA granted the system silently approves (no dialog on tap);
-                // without it the user sees a one-time confirmation dialog.
-                retryDeleteUris.clear()
-                Log.i(TAG, "scanDownloads: issued createDeleteRequest for ${uriList.size} source(s)")
-            } else {
-                // API 29: requestLegacyExternalStorage allows direct delete for files in Downloads.
-                val retryIter = retryDeleteUris.iterator()
-                while (retryIter.hasNext()) {
-                    val uri = retryIter.next()
-                    try {
-                        if (contentResolver.delete(uri, null, null) > 0) {
-                            Log.i(TAG, "scanDownloads: retroactively deleted source $uri")
-                            retryIter.remove()
-                        }
-                    } catch (_: RecoverableSecurityException) {
-                        // Still no permission — keep in set for next scan.
-                    } catch (e: Exception) {
-                        Log.w(TAG, "scanDownloads: giving up on pending delete for $uri", e)
+        // Pre-scan: on API 29 only, attempt direct deletes for URIs queued from previous scans.
+        // (requestLegacyExternalStorage makes direct delete work for app-accessible files on API 29.)
+        // On API 30+, createDeleteRequest() is required — that flush happens AFTER scanning below,
+        // so that URIs added during this scan are included in the same notification.
+        if (retryDeleteUris.isNotEmpty() && Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            val retryIter = retryDeleteUris.iterator()
+            while (retryIter.hasNext()) {
+                val uri = retryIter.next()
+                try {
+                    if (contentResolver.delete(uri, null, null) > 0) {
+                        Log.i(TAG, "scanDownloads: retroactively deleted source $uri")
                         retryIter.remove()
                     }
+                } catch (_: RecoverableSecurityException) {
+                    // Still no permission — keep in set for next scan.
+                } catch (e: Exception) {
+                    Log.w(TAG, "scanDownloads: giving up on pending delete for $uri", e)
+                    retryIter.remove()
                 }
             }
         }
@@ -236,6 +223,22 @@ class EXIFilerService : Service() {
             preferencesManager.addActivityLogEntry(
                 "$timestamp | Scan: $totalNew file(s) checked — 0 matched any profile criteria"
             )
+        }
+
+        // Post-scan: on API 30+, flush any pending source-delete URIs (including ones just added
+        // during this scan) via createDeleteRequest(). Doing this AFTER profile scanning ensures
+        // that URIs from the current scan are included — no second scan needed.
+        // Per the Android docs, even with MANAGE_MEDIA granted, non-owned files must be deleted
+        // via createDeleteRequest(); the permission only suppresses the confirmation dialog.
+        if (retryDeleteUris.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val uriList = retryDeleteUris.toList()
+            val deleteIntent = MediaStore.createDeleteRequest(contentResolver, uriList)
+            showDeletePendingNotification(deleteIntent, uriList.size)
+            // Clear the set — the notification's PendingIntent carries out the deletion.
+            // With MANAGE_MEDIA granted the system silently approves (no dialog on tap);
+            // without it the user sees a one-time confirmation dialog.
+            retryDeleteUris.clear()
+            Log.i(TAG, "scanDownloads: issued createDeleteRequest for ${uriList.size} source(s)")
         }
 
         Log.d(TAG, "-scanDownloads()")
