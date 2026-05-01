@@ -85,8 +85,11 @@ Paste the URL below into your browser, replacing `BRANCH_NAME` with the PR branc
 (e.g. `copilot/de-emphasize-meta-ai-glasses`):
 
 ```
-https://htmlpreview.github.io/?url=https://raw.githubusercontent.com/LookAtWhatAiCanDo/EXIFiler/BRANCH_NAME/docs/index.html
+https://htmlpreview.github.io/?https://github.com/LookAtWhatAiCanDo/EXIFiler/blob/BRANCH_NAME/docs/index.html
 ```
+
+> **Note:** Use the GitHub `blob/` URL format shown above (not `raw.githubusercontent.com`).
+> Branch names containing `/` (e.g. `copilot/de-emphasize-meta-ai-glasses`) work as-is.
 
 ### Option 2 — Check out the branch with the `gh` CLI
 
