@@ -10,7 +10,7 @@
 <body>
     <header>
         <div class="container">
-            <h1>📁 EXIFiler</h1>
+            <h1><span aria-hidden="true">📁</span> EXIFiler</h1>
             <p class="tagline">Automatically organize your Meta AI Glasses media</p>
         </div>
     </header>
@@ -29,32 +29,32 @@
             <h2>Features</h2>
             <div class="feature-grid">
                 <div class="feature-card">
-                    <div class="icon">🔍</div>
+                    <div class="icon" aria-hidden="true">🔍</div>
                     <h3>Automatic Detection</h3>
                     <p>Identifies Meta AI Glasses files by inspecting EXIF metadata (JPEG) and MP4 box atoms, not just filenames.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="icon">⚙️</div>
+                    <div class="icon" aria-hidden="true">⚙️</div>
                     <h3>Background Service</h3>
                     <p>Runs as a foreground service with persistent notification. Survives device reboots.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="icon">📂</div>
+                    <div class="icon" aria-hidden="true">📂</div>
                     <h3>Configurable Destination</h3>
                     <p>Pick any folder on internal storage via the system folder picker.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="icon">📋</div>
+                    <div class="icon" aria-hidden="true">📋</div>
                     <h3>Activity Log</h3>
                     <p>In-app scrollable log showing the 10 most recent file operations.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="icon">🔒</div>
+                    <div class="icon" aria-hidden="true">🔒</div>
                     <h3>Scoped Storage</h3>
                     <p>All file I/O uses ContentResolver/MediaStore with no raw filesystem paths.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="icon">🧩</div>
+                    <div class="icon" aria-hidden="true">🧩</div>
                     <h3>Kotlin Multiplatform</h3>
                     <p>Built with KMP architecture for future iOS support.</p>
                 </div>
@@ -92,11 +92,12 @@
             <h2>Detection Logic</h2>
             <p>EXIFiler uses smart metadata detection to identify Meta AI Glasses files:</p>
             <table class="detection-table">
+                <caption>Detection rules used to identify Meta AI Glasses media files</caption>
                 <thead>
                     <tr>
-                        <th>Format</th>
-                        <th>Metadata Field</th>
-                        <th>Match Condition</th>
+                        <th scope="col">Format</th>
+                        <th scope="col">Metadata Field</th>
+                        <th scope="col">Match Condition</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -118,11 +119,11 @@
             <h2>Requirements</h2>
             <ul>
                 <li><strong>Android 10+</strong> (API level 29 or higher)</li>
-                <li><strong>Permissions:</strong>
+                <li><strong>Access required:</strong>
                     <ul>
                         <li>Read Media Images/Video (Android 13+) or Read External Storage (≤ Android 12)</li>
                         <li>Post Notifications (Android 13+)</li>
-                        <li>Manage Media (optional but recommended for silent deletion on Android 12+)</li>
+                        <li>Special access: Manage media (optional but recommended for silent deletion on Android 12+; enabled via Settings on supported devices)</li>
                     </ul>
                 </li>
             </ul>

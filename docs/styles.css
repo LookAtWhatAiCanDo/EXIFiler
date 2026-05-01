@@ -400,6 +400,22 @@ a:hover {
     color: var(--primary-dark);
 }
 
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+    .btn,
+    .feature-card,
+    a,
+    footer a {
+        transition: none;
+    }
+
+    .btn-primary:hover,
+    .btn-secondary:hover,
+    .feature-card:hover {
+        transform: none;
+    }
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .container {
