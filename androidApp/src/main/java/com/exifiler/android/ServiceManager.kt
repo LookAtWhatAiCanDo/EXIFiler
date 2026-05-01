@@ -25,16 +25,13 @@ object ServiceManager {
     }
 
     /**
-     * Sends an immediate scan request to a running [EXIFilerService].
-     * Use this after the user grants MANAGE_MEDIA permission so pending source deletions
-     * are retried right away without waiting for the next ContentObserver notification.
+     * Runs an immediate scan via [MediaScanner], independent of [EXIFilerService]. Never
+     * starts or stops the service — Scan Now must work regardless of whether monitoring
+     * is enabled, and tapping it must not turn monitoring back on.
      */
-    fun requestScan(context: Context) {
-        val intent = Intent(context, EXIFilerService::class.java).apply {
-            action = EXIFilerService.ACTION_SCAN_NOW
-        }
-        context.startForegroundService(intent)
-        Log.i(TAG, "EXIFilerService immediate scan requested")
+    fun requestScan(context: Context, scope: CoroutineScope) {
+        scope.launch { MediaScanner.scan(context.applicationContext) }
+        Log.i(TAG, "MediaScanner.scan dispatched")
     }
 
     class BootReceiver : BroadcastReceiver() {

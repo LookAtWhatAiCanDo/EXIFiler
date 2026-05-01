@@ -125,6 +125,11 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
         }
     }
 
+    /** Runs a one-shot scan that does NOT start or stop the foreground service. */
+    fun scanNow(context: Context) {
+        ServiceManager.requestScan(context, viewModelScope)
+    }
+
     fun enterMultiSelectMode(entry: String) {
         _selectedEntries.value = setOf(entry)
         _multiSelectActive.value = true
@@ -218,7 +223,7 @@ class MainActivity : ComponentActivity() {
         // If MANAGE_MEDIA was just granted, trigger an immediate rescan so the service retries
         // pending source deletions without waiting for the next ContentObserver notification.
         if (hadPermissionMissing && !viewModel.needsManageMedia.value) {
-            ServiceManager.requestScan(this)
+            viewModel.scanNow(this)
         }
     }
 
@@ -395,7 +400,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { ServiceManager.requestScan(context) },
+                            onClick = { viewModel.scanNow(context) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(stringResource(R.string.scan_now))
