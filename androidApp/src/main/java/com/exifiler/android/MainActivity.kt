@@ -393,14 +393,12 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                                 onCheckedChange = { viewModel.setServiceEnabled(context, it) }
                             )
                         }
-                        if (serviceEnabled) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { ServiceManager.requestScan(context) },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(stringResource(R.string.scan_now))
-                            }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { ServiceManager.requestScan(context) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.scan_now))
                         }
                     }
                 }
