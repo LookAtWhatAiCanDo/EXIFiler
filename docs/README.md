@@ -13,9 +13,8 @@ This directory contains the GitHub Pages website for EXIFiler.com.
 To enable GitHub Pages for the custom domain:
 
 1. Go to repository Settings → Pages
-2. Under "Source", select "Deploy from a branch"
-3. Under "Branch", select `main` and `/docs` folder
-4. Save the settings
+2. Under "Source", select "GitHub Actions"
+3. Save the settings
 
 The GitHub Actions workflow (`.github/workflows/pages.yml`) will automatically deploy changes to the website when you push updates to the `docs/` directory.
 
