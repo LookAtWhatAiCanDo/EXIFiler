@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="EXIFiler - Automatic file organizer for Meta AI Glasses media on Android">
-    <title>EXIFiler - Smart Media Organizer for Meta AI Glasses</title>
+    <meta name="description" content="EXIFiler - Automatic media organizer for Android. Watches your Downloads folder and moves files to a destination folder based on EXIF metadata and file content.">
+    <title>EXIFiler - Smart Media Organizer for Android</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header>
         <div class="container">
             <h1><span aria-hidden="true">📁</span> EXIFiler</h1>
-            <p class="tagline">Automatically organize your Meta AI Glasses media</p>
+            <p class="tagline">Automatically organize your media by what's inside it</p>
         </div>
     </header>
 
     <main class="container">
         <section class="hero">
             <h2>Smart Background Service for Android</h2>
-            <p>EXIFiler monitors your device's Downloads folder and automatically moves Meta AI Glasses photos and videos to a dedicated folder — no manual sorting needed.</p>
+            <p>EXIFiler monitors your device's Downloads folder and automatically moves matching photos and videos to a dedicated folder — no manual sorting needed. Originally built for Meta AI Glasses media, it works with any device or camera whose files can be identified by EXIF metadata or embedded file properties.</p>
             <div class="cta-buttons">
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases" class="btn btn-primary">Download App</a>
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler" class="btn btn-secondary">View on GitHub</a>
@@ -31,7 +31,7 @@
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">🔍</div>
                     <h3>Automatic Detection</h3>
-                    <p>Identifies Meta AI Glasses files by inspecting EXIF metadata (JPEG) and MP4 box atoms, not just filenames.</p>
+                    <p>Identifies media files by inspecting EXIF metadata (JPEG) and MP4 box atoms — not just filenames — making it accurate across any source device or app.</p>
                 </div>
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">⚙️</div>
@@ -75,7 +75,7 @@
                     <div class="step-number">2</div>
                     <div class="step-content">
                         <h3>Choose Destination</h3>
-                        <p>Select where you want Meta AI Glasses files moved (default: DCIM/EXIFiler/).</p>
+                        <p>Select where you want matching files moved (default: DCIM/EXIFiler/).</p>
                     </div>
                 </div>
                 <div class="step">
@@ -90,9 +90,9 @@
 
         <section class="detection">
             <h2>Detection Logic</h2>
-            <p>EXIFiler uses smart metadata detection to identify Meta AI Glasses files:</p>
+            <p>EXIFiler uses metadata-based detection to identify files rather than relying on filenames. The built-in rules cover Meta AI Glasses media (the original use case), and the architecture is designed to support additional device profiles in the future:</p>
             <table class="detection-table">
-                <caption>Detection rules used to identify Meta AI Glasses media files</caption>
+                <caption>Built-in detection rules (current version)</caption>
                 <thead>
                     <tr>
                         <th scope="col">Format</th>
@@ -136,7 +136,7 @@
                 <li>Install the APK on your Android device</li>
                 <li>Grant required permissions when prompted</li>
                 <li>Enable the service and choose your destination folder</li>
-                <li>Done! EXIFiler will now automatically organize your Meta AI Glasses media</li>
+                <li>Done! EXIFiler will now automatically organize your media as it arrives in Downloads</li>
             </ol>
         </section>
 
