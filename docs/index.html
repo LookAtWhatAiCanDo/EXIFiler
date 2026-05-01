@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="EXIFiler - Automatic file organizer for Meta AI Glasses media on Android">
+    <title>EXIFiler - Smart Media Organizer for Meta AI Glasses</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><span aria-hidden="true">📁</span> EXIFiler</h1>
+            <p class="tagline">Automatically organize your Meta AI Glasses media</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <h2>Smart Background Service for Android</h2>
+            <p>EXIFiler monitors your device's Downloads folder and automatically moves Meta AI Glasses photos and videos to a dedicated folder — no manual sorting needed.</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases" class="btn btn-primary">Download App</a>
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler" class="btn btn-secondary">View on GitHub</a>
+            </div>
+        </section>
+
+        <section class="features">
+            <h2>Features</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="icon" aria-hidden="true">🔍</div>
+                    <h3>Automatic Detection</h3>
+                    <p>Identifies Meta AI Glasses files by inspecting EXIF metadata (JPEG) and MP4 box atoms, not just filenames.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon" aria-hidden="true">⚙️</div>
+                    <h3>Background Service</h3>
+                    <p>Runs as a foreground service with persistent notification. Survives device reboots.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon" aria-hidden="true">📂</div>
+                    <h3>Configurable Destination</h3>
+                    <p>Pick any folder on internal storage via the system folder picker.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon" aria-hidden="true">📋</div>
+                    <h3>Activity Log</h3>
+                    <p>In-app scrollable log showing the 10 most recent file operations.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon" aria-hidden="true">🔒</div>
+                    <h3>Scoped Storage</h3>
+                    <p>All file I/O uses ContentResolver/MediaStore with no raw filesystem paths.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon" aria-hidden="true">🧩</div>
+                    <h3>Kotlin Multiplatform</h3>
+                    <p>Built with KMP architecture for future iOS support.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="how-it-works">
+            <h2>How It Works</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Enable the Service</h3>
+                        <p>Turn on the background monitoring service with a single toggle.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Choose Destination</h3>
+                        <p>Select where you want Meta AI Glasses files moved (default: DCIM/EXIFiler/).</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Automatic Organization</h3>
+                        <p>EXIFiler monitors Downloads and automatically moves matching files in real-time.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="detection">
+            <h2>Detection Logic</h2>
+            <p>EXIFiler uses smart metadata detection to identify Meta AI Glasses files:</p>
+            <table class="detection-table">
+                <caption>Detection rules used to identify Meta AI Glasses media files</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Format</th>
+                        <th scope="col">Metadata Field</th>
+                        <th scope="col">Match Condition</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>JPEG / JPG</td>
+                        <td>EXIF IFD0 Make tag (0x010F)</td>
+                        <td>equals "Meta" (case-insensitive)</td>
+                    </tr>
+                    <tr>
+                        <td>MP4 / MOV</td>
+                        <td>udta/©cmt box content</td>
+                        <td>contains "device=Ray-Ban Meta Smart Glasses"</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="requirements">
+            <h2>Requirements</h2>
+            <ul>
+                <li><strong>Android 10+</strong> (API level 29 or higher)</li>
+                <li><strong>Access required:</strong>
+                    <ul>
+                        <li>Read Media Images/Video (Android 13+) or Read External Storage (≤ Android 12)</li>
+                        <li>Post Notifications (Android 13+)</li>
+                        <li>Special access: Manage media (optional but recommended for silent deletion on Android 12+; enabled via Settings on supported devices)</li>
+                    </ul>
+                </li>
+            </ul>
+        </section>
+
+        <section class="installation">
+            <h2>Installation</h2>
+            <ol>
+                <li>Download the latest APK from the <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases">Releases page</a></li>
+                <li>Install the APK on your Android device</li>
+                <li>Grant required permissions when prompted</li>
+                <li>Enable the service and choose your destination folder</li>
+                <li>Done! EXIFiler will now automatically organize your Meta AI Glasses media</li>
+            </ol>
+        </section>
+
+        <section class="tech-stack">
+            <h2>Technology</h2>
+            <p>EXIFiler is built with modern Android development practices:</p>
+            <ul>
+                <li><strong>Kotlin Multiplatform (KMP)</strong> — shared detection logic across platforms</li>
+                <li><strong>Jetpack Compose</strong> — modern declarative UI</li>
+                <li><strong>Coroutines & Flow</strong> — reactive state management</li>
+                <li><strong>DataStore</strong> — type-safe preference storage</li>
+                <li><strong>Okio</strong> — efficient file I/O and parsing</li>
+                <li><strong>Scoped Storage</strong> — Android 10+ compliant file access</li>
+            </ul>
+        </section>
+
+        <section class="open-source">
+            <h2>Open Source</h2>
+            <p>EXIFiler is open source and available on GitHub. Contributions, issues, and feature requests are welcome!</p>
+            <div class="github-links">
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler" class="btn btn-secondary">View Source Code</a>
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/issues" class="btn btn-secondary">Report an Issue</a>
+            </div>
+        </section>
+
+        <section class="roadmap">
+            <h2>Roadmap</h2>
+            <div class="roadmap-grid">
+                <div class="roadmap-item completed">
+                    <h3>Phase 1: KMP Android ✅</h3>
+                    <p>Complete</p>
+                </div>
+                <div class="roadmap-item planned">
+                    <h3>Phase 2: KMP iOS</h3>
+                    <p>Planned</p>
+                </div>
+                <div class="roadmap-item planned">
+                    <h3>Phase 3: Swift iOS</h3>
+                    <p>Planned</p>
+                </div>
+                <div class="roadmap-item planned">
+                    <h3>Phase 4: Swift Android</h3>
+                    <p>Planned</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 EXIFiler. Open source under the MIT License.</p>
+            <p>
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler">GitHub</a> •
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/blob/main/LICENSE">License</a> •
+                <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/issues">Issues</a>
+            </p>
+        </div>
+    </footer>
+</body>
+</html>
