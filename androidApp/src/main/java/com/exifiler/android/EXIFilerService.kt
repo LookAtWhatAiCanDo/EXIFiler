@@ -178,22 +178,21 @@ class EXIFilerService : Service() {
 
         // Retry source deletions that failed in a previous scan.
         // Per https://developer.android.com/training/data-storage/shared/media#management-permission,
-        // even with MANAGE_MEDIA granted, deletion of non-owned files must go through
-        // createDeleteRequest() — the permission only suppresses the user confirmation dialog.
-        // On API 31+ with canManageMedia(): issue a batch createDeleteRequest() via notification
-        // (no dialog shown when tapped, because MANAGE_MEDIA is granted).
-        // On earlier APIs or without MANAGE_MEDIA: attempt direct delete, which works for files
-        // the app owns or on API 29 via requestLegacyExternalStorage.
+        // deletion of non-owned files must always go through createDeleteRequest() on API 30+.
+        // MANAGE_MEDIA only suppresses the confirmation dialog — without it the system still shows
+        // one. On API 29, requestLegacyExternalStorage lets direct delete work.
         if (retryDeleteUris.isNotEmpty()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S /* API 31 */ && MediaStore.canManageMedia(this@EXIFilerService)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R /* API 30 */) {
                 val uriList = retryDeleteUris.toList()
                 val deleteIntent = MediaStore.createDeleteRequest(contentResolver, uriList)
                 showDeletePendingNotification(deleteIntent, uriList.size)
                 // Clear the set — the notification's PendingIntent carries out the deletion.
-                // With MANAGE_MEDIA the system silently approves (no dialog on tap).
+                // With MANAGE_MEDIA granted the system silently approves (no dialog on tap);
+                // without it the user sees a one-time confirmation dialog.
                 retryDeleteUris.clear()
                 Log.i(TAG, "scanDownloads: issued createDeleteRequest for ${uriList.size} source(s)")
             } else {
+                // API 29: requestLegacyExternalStorage allows direct delete for files in Downloads.
                 val retryIter = retryDeleteUris.iterator()
                 while (retryIter.hasNext()) {
                     val uri = retryIter.next()
