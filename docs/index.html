@@ -3,22 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="EXIFiler - Automatic file organizer for Meta AI Glasses media on Android">
-    <title>EXIFiler - Smart Media Organizer for Meta AI Glasses</title>
+    <meta name="description" content="EXIFiler - Automatic media organizer for Android [and iOS coming soon]. Watches any folder you configure and moves matching files based on EXIF metadata and file content.">
+    <title>EXIFiler - Smart Media Organizer</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header>
         <div class="container">
             <h1><span aria-hidden="true">📁</span> EXIFiler</h1>
-            <p class="tagline">Automatically organize your Meta AI Glasses media</p>
+            <p class="tagline">Automatically organize your mobile media by what's inside it</p>
         </div>
     </header>
 
     <main class="container">
         <section class="hero">
-            <h2>Smart Background Service for Android</h2>
-            <p>EXIFiler monitors your device's Downloads folder and automatically moves Meta AI Glasses photos and videos to a dedicated folder — no manual sorting needed.</p>
+            <h2>Smart Background Media Service for Mobile</h2>
+            <p>EXIFiler monitors any folder you configure and automatically moves matching photos and videos to a dedicated destination — no manual sorting needed. Originally built for Meta AI Glasses media, it works with any device or camera photos that can be identified by EXIF metadata or embedded file properties.</p>
+            <p><strong>Available now on Android.</strong> iOS support is coming soon.</p>
             <div class="cta-buttons">
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases" class="btn btn-primary">Download App</a>
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler" class="btn btn-secondary">View on GitHub</a>
@@ -31,7 +32,7 @@
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">🔍</div>
                     <h3>Automatic Detection</h3>
-                    <p>Identifies Meta AI Glasses files by inspecting EXIF metadata (JPEG) and MP4 box atoms, not just filenames.</p>
+                    <p>Identifies media files by inspecting EXIF metadata (JPEG) and MP4 box atoms — not just filenames — making it accurate across any source device or app.</p>
                 </div>
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">⚙️</div>
@@ -40,8 +41,8 @@
                 </div>
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">📂</div>
-                    <h3>Configurable Destination</h3>
-                    <p>Pick any folder on internal storage via the system folder picker.</p>
+                    <h3>Fully Configurable Profiles</h3>
+                    <p>Create monitoring profiles: choose any source folder to watch, define file-type and EXIF criteria, and set the destination — all independently configurable.</p>
                 </div>
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">📋</div>
@@ -56,7 +57,7 @@
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">🧩</div>
                     <h3>Kotlin Multiplatform</h3>
-                    <p>Built with KMP architecture for future iOS support.</p>
+                    <p>Detection logic is shared across platforms via KMP. Android is available today; iOS support is coming soon.</p>
                 </div>
             </div>
         </section>
@@ -74,15 +75,15 @@
                 <div class="step">
                     <div class="step-number">2</div>
                     <div class="step-content">
-                        <h3>Choose Destination</h3>
-                        <p>Select where you want Meta AI Glasses files moved (default: DCIM/EXIFiler/).</p>
+                        <h3>Configure a Profile</h3>
+                        <p>Set up one or more monitoring profiles: pick a source folder to watch, define file-type and EXIF match criteria, and choose a destination folder for each profile.</p>
                     </div>
                 </div>
                 <div class="step">
                     <div class="step-number">3</div>
                     <div class="step-content">
                         <h3>Automatic Organization</h3>
-                        <p>EXIFiler monitors Downloads and automatically moves matching files in real-time.</p>
+                        <p>EXIFiler monitors your configured source folder(s) and automatically moves matching files in real-time.</p>
                     </div>
                 </div>
             </div>
@@ -90,9 +91,9 @@
 
         <section class="detection">
             <h2>Detection Logic</h2>
-            <p>EXIFiler uses smart metadata detection to identify Meta AI Glasses files:</p>
+            <p>EXIFiler uses metadata-based detection to identify files rather than relying on filenames. The built-in rules cover Meta AI Glasses media (the original use case), and the architecture is designed to support additional device profiles in the future:</p>
             <table class="detection-table">
-                <caption>Detection rules used to identify Meta AI Glasses media files</caption>
+                <caption>Built-in detection rules (current version)</caption>
                 <thead>
                     <tr>
                         <th scope="col">Format</th>
@@ -116,7 +117,7 @@
         </section>
 
         <section class="requirements">
-            <h2>Requirements</h2>
+            <h2>Requirements — Android</h2>
             <ul>
                 <li><strong>Android 10+</strong> (API level 29 or higher)</li>
                 <li><strong>Access required:</strong>
@@ -130,19 +131,19 @@
         </section>
 
         <section class="installation">
-            <h2>Installation</h2>
+            <h2>Installation — Android</h2>
             <ol>
                 <li>Download the latest APK from the <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases">Releases page</a></li>
                 <li>Install the APK on your Android device</li>
                 <li>Grant required permissions when prompted</li>
-                <li>Enable the service and choose your destination folder</li>
-                <li>Done! EXIFiler will now automatically organize your Meta AI Glasses media</li>
+                <li>Enable the service and configure your monitoring profile(s)</li>
+                <li>Done! EXIFiler will now automatically organize your media as it arrives in your configured source folder(s)</li>
             </ol>
         </section>
 
         <section class="tech-stack">
             <h2>Technology</h2>
-            <p>EXIFiler is built with modern Android development practices:</p>
+            <p>EXIFiler is built with a Kotlin Multiplatform architecture designed for Android and soon iOS:</p>
             <ul>
                 <li><strong>Kotlin Multiplatform (KMP)</strong> — shared detection logic across platforms</li>
                 <li><strong>Jetpack Compose</strong> — modern declarative UI</li>
