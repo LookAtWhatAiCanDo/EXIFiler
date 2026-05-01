@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="EXIFiler - Automatic media organizer for Android. Watches your Downloads folder and moves files to a destination folder based on EXIF metadata and file content.">
+    <meta name="description" content="EXIFiler - Automatic media organizer for Android. Watches any folder you configure and moves matching files based on EXIF metadata and file content.">
     <title>EXIFiler - Smart Media Organizer for Android</title>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -18,7 +18,7 @@
     <main class="container">
         <section class="hero">
             <h2>Smart Background Service for Android</h2>
-            <p>EXIFiler monitors your device's Downloads folder and automatically moves matching photos and videos to a dedicated folder — no manual sorting needed. Originally built for Meta AI Glasses media, it works with any device or camera whose files can be identified by EXIF metadata or embedded file properties.</p>
+            <p>EXIFiler monitors any folder you configure and automatically moves matching photos and videos to a dedicated destination — no manual sorting needed. Originally built for Meta AI Glasses media, it works with any device or camera whose files can be identified by EXIF metadata or embedded file properties.</p>
             <div class="cta-buttons">
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases" class="btn btn-primary">Download App</a>
                 <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler" class="btn btn-secondary">View on GitHub</a>
@@ -40,8 +40,8 @@
                 </div>
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">📂</div>
-                    <h3>Configurable Destination</h3>
-                    <p>Pick any folder on internal storage via the system folder picker.</p>
+                    <h3>Fully Configurable Profiles</h3>
+                    <p>Create monitoring profiles: choose any source folder to watch, define file-type and EXIF criteria, and set the destination — all independently configurable.</p>
                 </div>
                 <div class="feature-card">
                     <div class="icon" aria-hidden="true">📋</div>
@@ -74,15 +74,15 @@
                 <div class="step">
                     <div class="step-number">2</div>
                     <div class="step-content">
-                        <h3>Choose Destination</h3>
-                        <p>Select where you want matching files moved (default: DCIM/EXIFiler/).</p>
+                        <h3>Configure a Profile</h3>
+                        <p>Set up one or more monitoring profiles: pick a source folder to watch, define file-type and EXIF match criteria, and choose a destination folder for each profile.</p>
                     </div>
                 </div>
                 <div class="step">
                     <div class="step-number">3</div>
                     <div class="step-content">
                         <h3>Automatic Organization</h3>
-                        <p>EXIFiler monitors Downloads and automatically moves matching files in real-time.</p>
+                        <p>EXIFiler monitors your configured source folder(s) and automatically moves matching files in real-time.</p>
                     </div>
                 </div>
             </div>
@@ -135,8 +135,8 @@
                 <li>Download the latest APK from the <a href="https://github.com/LookAtWhatAiCanDo/EXIFiler/releases">Releases page</a></li>
                 <li>Install the APK on your Android device</li>
                 <li>Grant required permissions when prompted</li>
-                <li>Enable the service and choose your destination folder</li>
-                <li>Done! EXIFiler will now automatically organize your media as it arrives in Downloads</li>
+                <li>Enable the service and configure your monitoring profile(s)</li>
+                <li>Done! EXIFiler will now automatically organize your media as it arrives in your configured source folder(s)</li>
             </ol>
         </section>
 
