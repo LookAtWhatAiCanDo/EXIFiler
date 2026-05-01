@@ -23,11 +23,19 @@ object MetadataDetector {
     /**
      * Detect whether [source] (named [filename]) matches the given [exifFilters].
      *
-     * - Empty [exifFilters]: any file whose extension is supported counts as a match.
-     * - Non-empty [exifFilters]: the file's metadata must satisfy **all** key/value pairs.
+     * **Behaviour by [exifFilters] value:**
+     * - `emptyMap()` (the default): any file whose extension is supported counts as a match.
+     *   Use this when a [MonitoringProfile] has no EXIF constraints — all files in the watched
+     *   folder should be moved regardless of their embedded metadata.
+     * - Non-empty map: the file's embedded metadata must satisfy **all** key/value pairs.
      *   Supported keys are the EXIF IFD0 string-tag names listed in [EXIF_STRING_TAGS]
      *   (`"Make"`, `"Model"`, `"Software"`, `"Artist"`, `"Copyright"`).
-     *   For MP4/MOV, only `"Make"="Meta"` is supported (maps to the Ray-Ban `©cmt` atom check).
+     *   For MP4/MOV, **only** `"Make"="Meta"` is supported (maps to the Ray-Ban `©cmt` atom
+     *   check); any other filter combination returns [DetectionResult.NoMatch] for video files.
+     *
+     * Note: the old zero-argument version of this function that implicitly filtered for Meta AI
+     * Glasses files no longer exists. Callers that previously relied on that behaviour should pass
+     * `mapOf("Make" to "Meta")` explicitly — which is what [MonitoringProfile.DEFAULT] does.
      */
     fun detect(
         source: BufferedSource,
@@ -72,8 +80,14 @@ object MetadataDetector {
                     if (!source.request(remaining.toLong())) break
                     val exifData = source.readByteArray(remaining.toLong())
                     if (matchesExifFilters(exifData, exifFilters)) {
-                        val make = extractExifStringTag(exifData, 0x010F)
-                        return DetectionResult.Match(make?.trim('\u0000') ?: MATCH_DEVICE_NAME)
+                        val make = extractExifStringTag(exifData, 0x010F)?.trim('\u0000')
+                        // Prefer the actual EXIF Make value; fall back to the filter's Make value;
+                        // then to the first filter entry description; finally to the default name.
+                        val deviceName = make
+                            ?: exifFilters["Make"]
+                            ?: exifFilters.entries.firstOrNull()?.let { "${it.key}=${it.value}" }
+                            ?: MATCH_DEVICE_NAME
+                        return DetectionResult.Match(deviceName)
                     }
                 } else {
                     if (remaining > 0) {
@@ -146,6 +160,11 @@ object MetadataDetector {
     }
 
     // ── MP4 detection ─────────────────────────────────────────────────────────────────────────────
+    //
+    // MP4 container atoms do not map cleanly to EXIF IFD0 tags, so only the well-known
+    // Ray-Ban Meta Smart Glasses signature (©cmt atom containing a "device=…" string) is
+    // supported.  When [exifFilters] is non-empty and does not specify `Make=Meta`, this method
+    // returns [DetectionResult.NoMatch] — it cannot inspect arbitrary MP4 metadata.
 
     private fun detectMp4(source: BufferedSource, exifFilters: Map<String, String>): DetectionResult {
         // No filters → any valid MP4/MOV matches without inspecting metadata
