@@ -8,23 +8,50 @@ object MetadataDetector {
     private const val RAY_BAN_DEVICE_PREFIX = "device=Ray-Ban Meta Smart Glasses"
     private const val MATCH_DEVICE_NAME = "Ray-Ban Meta Smart Glasses"
 
-    fun detect(source: BufferedSource, filename: String): DetectionResult {
+    /**
+     * Maps well-known EXIF IFD0 tag names (as used in [MonitoringProfile.exifFilters]) to their
+     * numeric tag IDs so that arbitrary string-valued IFD0 tags can be checked generically.
+     */
+    private val EXIF_STRING_TAGS = mapOf(
+        "Make"      to 0x010F,
+        "Model"     to 0x0110,
+        "Software"  to 0x0131,
+        "Artist"    to 0x013B,
+        "Copyright" to 0x8298,
+    )
+
+    /**
+     * Detect whether [source] (named [filename]) matches the given [exifFilters].
+     *
+     * - Empty [exifFilters]: any file whose extension is supported counts as a match.
+     * - Non-empty [exifFilters]: the file's metadata must satisfy **all** key/value pairs.
+     *   Supported keys are the EXIF IFD0 string-tag names listed in [EXIF_STRING_TAGS]
+     *   (`"Make"`, `"Model"`, `"Software"`, `"Artist"`, `"Copyright"`).
+     *   For MP4/MOV, only `"Make"="Meta"` is supported (maps to the Ray-Ban `©cmt` atom check).
+     */
+    fun detect(
+        source: BufferedSource,
+        filename: String,
+        exifFilters: Map<String, String> = emptyMap(),
+    ): DetectionResult {
         val lower = filename.lowercase()
         return when {
-            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> detectJpeg(source)
-            lower.endsWith(".mp4") || lower.endsWith(".mov") -> detectMp4(source)
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> detectJpeg(source, exifFilters)
+            lower.endsWith(".mp4") || lower.endsWith(".mov") -> detectMp4(source, exifFilters)
             else -> DetectionResult.Unsupported
         }
     }
 
-    private fun isMetaMake(make: String?): Boolean =
-        make != null && make.trim('\u0000').equals(META_MAKE, ignoreCase = true)
+    // ── JPEG detection ────────────────────────────────────────────────────────────────────────────
 
-    private fun detectJpeg(source: BufferedSource): DetectionResult {
+    private fun detectJpeg(source: BufferedSource, exifFilters: Map<String, String>): DetectionResult {
         // Read JPEG SOI marker
         if (!source.request(2)) return DetectionResult.Unsupported
         val soi = source.readShort()
         if (soi != 0xFFD8.toShort()) return DetectionResult.Unsupported
+
+        // No filters → any valid JPEG matches
+        if (exifFilters.isEmpty()) return DetectionResult.Match("any")
 
         // Scan JPEG segments looking for APP1 (0xFFE1) which contains EXIF
         while (true) {
@@ -44,9 +71,9 @@ object MetadataDetector {
                 if (remaining > 0 && header.decodeToString().startsWith("Exif")) {
                     if (!source.request(remaining.toLong())) break
                     val exifData = source.readByteArray(remaining.toLong())
-                    val make = extractExifMake(exifData)
-                    if (isMetaMake(make)) {
-                        return DetectionResult.Match(MATCH_DEVICE_NAME)
+                    if (matchesExifFilters(exifData, exifFilters)) {
+                        val make = extractExifStringTag(exifData, 0x010F)
+                        return DetectionResult.Match(make?.trim('\u0000') ?: MATCH_DEVICE_NAME)
                     }
                 } else {
                     if (remaining > 0) {
@@ -62,7 +89,21 @@ object MetadataDetector {
         return DetectionResult.NoMatch
     }
 
-    private fun extractExifMake(exifData: ByteArray): String? {
+    /**
+     * Returns true when all [exifFilters] entries are satisfied by the IFD0 tags in [exifData].
+     * Keys not present in [EXIF_STRING_TAGS] are treated as non-matching (conservative).
+     */
+    private fun matchesExifFilters(exifData: ByteArray, exifFilters: Map<String, String>): Boolean {
+        if (exifFilters.isEmpty()) return true
+        return exifFilters.all { (key, value) ->
+            val tagId = EXIF_STRING_TAGS[key] ?: return@all false
+            val extracted = extractExifStringTag(exifData, tagId) ?: return@all false
+            extracted.trim('\u0000').equals(value, ignoreCase = true)
+        }
+    }
+
+    /** Extracts the ASCII value of any IFD0 EXIF tag identified by [tagId]. */
+    private fun extractExifStringTag(exifData: ByteArray, tagId: Int): String? {
         if (exifData.size < 8) return null
         // Determine byte order
         val littleEndian = exifData[0] == 0x49.toByte() && exifData[1] == 0x49.toByte()
@@ -90,7 +131,7 @@ object MetadataDetector {
             val entryOffset = ifd0Offset + 2 + i * 12
             if (entryOffset + 12 > exifData.size) break
             val tag = readShort(entryOffset)
-            if (tag == 0x010F) { // Make tag
+            if (tag == tagId) {
                 val dataType = readShort(entryOffset + 2)
                 val count = readInt(entryOffset + 4)
                 val valueOffset = readInt(entryOffset + 8)
@@ -104,7 +145,19 @@ object MetadataDetector {
         return null
     }
 
-    private fun detectMp4(source: BufferedSource): DetectionResult {
+    // ── MP4 detection ─────────────────────────────────────────────────────────────────────────────
+
+    private fun detectMp4(source: BufferedSource, exifFilters: Map<String, String>): DetectionResult {
+        // No filters → any valid MP4/MOV matches without inspecting metadata
+        if (exifFilters.isEmpty()) return DetectionResult.Match("any")
+
+        // MP4 metadata inspection is only supported when Make=Meta is specified.
+        // Other arbitrary EXIF keys cannot be reliably resolved from MP4 container atoms.
+        val targetMake = exifFilters["Make"]
+        if (targetMake == null || !targetMake.trim('\u0000').equals(META_MAKE, ignoreCase = true)) {
+            return DetectionResult.NoMatch
+        }
+
         // Scan top-level MP4 boxes looking for comment metadata
         outer@ while (true) {
             if (!source.request(8)) break

@@ -282,7 +282,7 @@ class EXIFilerService : Service() {
             }
             newCount++
             Log.d(TAG, "scanForProfile[${profile.name}]: processing $name ($fileUri)")
-            if (processFile(fileUri, name, uriKey, profile.inputFolder, profile.outputFolder)) matchCount++
+            if (processFile(fileUri, name, uriKey, profile.inputFolder, profile.outputFolder, profile.exifFilters)) matchCount++
         }
         return newCount to matchCount
     }
@@ -301,7 +301,8 @@ class EXIFilerService : Service() {
         filename: String,
         uriKey: String,
         sourceFolder: String,
-        targetFolder: String
+        targetFolder: String,
+        exifFilters: Map<String, String>
     ): Boolean {
         Log.d(TAG, "processFile: $filename ($uri)")
         return try {
@@ -310,7 +311,7 @@ class EXIFilerService : Service() {
                 return false
             }
             val result = inputStream.use { stream ->
-                MetadataDetector.detect(stream.source().buffer(), filename)
+                MetadataDetector.detect(stream.source().buffer(), filename, exifFilters)
             }
 
             Log.d(TAG, "processFile: $filename -> $result")
