@@ -131,6 +131,22 @@ All versions are managed in `gradle/libs.versions.toml`.
 |----------|---------|------|
 | `build.yml` | Push to `main` / PR | Build shared module → Build Android app → Run tests → Upload APK artifact (on push) |
 | `pr-check.yml` | PR open / sync | **lint** (Android Lint) and **build-and-test** (assembleDebug + test) run in parallel |
+| `release.yml` | Push of `v*` semver tag / manual dispatch | Build signed release APK + AAB → create GitHub Release with artefacts |
+
+---
+
+## How to Release
+
+1. Bump `versionCode` and `versionName` in `androidApp/build.gradle.kts`, commit, and push to `main`.
+2. Tag the commit and push the tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+3. The **Release** workflow builds a signed APK and AAB and publishes them as a GitHub Release automatically.
+
+> **One-time setup required:** the release workflow needs four GitHub Secrets to sign the build.
+> See [`docs/RELEASING.md`](docs/RELEASING.md) for the full guide — keystore generation, secret storage, key rotation, and the future iOS release checklist.
 
 ---
 
