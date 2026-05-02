@@ -44,11 +44,22 @@ If this keystore is ever lost you will be unable to publish updates to the same 
 
 ### 2 — Store the keystore as a base64 secret
 
+**Linux (GNU coreutils):**
 ```bash
 base64 -w 0 exifiler-release.keystore
 ```
 
-Copy the output and save it as a **GitHub repository secret** named
+**macOS (BSD base64):**
+```bash
+base64 -i exifiler-release.keystore | tr -d '\n'
+```
+
+**Either platform — Python fallback:**
+```bash
+python3 -c "import base64, sys; sys.stdout.write(base64.b64encode(open('exifiler-release.keystore','rb').read()).decode())"
+```
+
+Copy the single-line output and save it as a **GitHub repository secret** named
 `RELEASE_KEYSTORE_BASE64`.
 
 ### 3 — Store the remaining secrets

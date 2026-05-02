@@ -11,7 +11,7 @@ on:
         required: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -50,19 +50,17 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
       - name: Decode keystore
         run: |
+          if [ -z "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "::error::RELEASE_KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
           echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > "${{ runner.temp }}/release.keystore"
+          if [ ! -s "${{ runner.temp }}/release.keystore" ]; then
+            echo "::error::Decoded keystore file is empty — check RELEASE_KEYSTORE_BASE64"
+            exit 1
+          fi
 
       - name: Build signed release APK and AAB
         env:
@@ -82,6 +80,7 @@ jobs:
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             androidApp/build/outputs/apk/release/*.apk
             androidApp/build/outputs/bundle/release/*.aab
