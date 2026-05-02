@@ -23,7 +23,7 @@ object MetadataDetector {
     /**
      * Detect whether [source] (named [filename]) matches the given [exifFilters].
      *
-     * **Behaviour by [exifFilters] value:**
+     * **Behavior by [exifFilters] value:**
      * - `emptyMap()` (the default): any file whose extension is supported counts as a match.
      *   Use this when a [MonitoringProfile] has no EXIF constraints — all files in the watched
      *   folder should be moved regardless of their embedded metadata.
@@ -34,7 +34,7 @@ object MetadataDetector {
      *   check); any other filter combination returns [DetectionResult.NoMatch] for video files.
      *
      * Note: the old zero-argument version of this function that implicitly filtered for Meta AI
-     * Glasses files no longer exists. Callers that previously relied on that behaviour should pass
+     * Glasses files no longer exists. Callers that previously relied on that behavior should pass
      * `mapOf("Make" to "Meta")` explicitly — which is what [MonitoringProfile.DEFAULT] does.
      */
     fun detect(
@@ -50,7 +50,7 @@ object MetadataDetector {
         }
     }
 
-    // ── JPEG detection ────────────────────────────────────────────────────────────────────────────
+    // -- JPEG detection ----------------------------------------------------------------------------
 
     private fun detectJpeg(source: BufferedSource, exifFilters: Map<String, String>): DetectionResult {
         // Read JPEG SOI marker
@@ -159,7 +159,7 @@ object MetadataDetector {
         return null
     }
 
-    // ── MP4 detection ─────────────────────────────────────────────────────────────────────────────
+    // -- MP4 detection -----------------------------------------------------------------------------
     //
     // MP4 container atoms do not map cleanly to EXIF IFD0 tags, so only the well-known
     // Ray-Ban Meta Smart Glasses signature (©cmt atom containing a "device=…" string) is
@@ -177,80 +177,135 @@ object MetadataDetector {
             return DetectionResult.NoMatch
         }
 
-        // Scan top-level MP4 boxes looking for comment metadata
-        outer@ while (true) {
-            if (!source.request(8)) break
-            // Read size as unsigned 32-bit to cover the full range (0 to 4,294,967,295 bytes)
-            val sizeField = source.readInt().toLong() and 0xFFFFFFFFL
-            val type = source.readByteArray(4).decodeToString()
-
-            val boxDataSize: Long = when {
-                sizeField == 0L -> {
-                    // Box extends to EOF — consume udta if it's this box, then stop
-                    if (type == "udta") {
-                        val comment = parseUdtaForComment(source, Long.MAX_VALUE)
-                        if (comment != null && comment.contains(RAY_BAN_DEVICE_PREFIX)) {
-                            return DetectionResult.Match(MATCH_DEVICE_NAME)
-                        }
-                    }
-                    break@outer
-                }
-                sizeField == 1L -> { // 64-bit extended size field
-                    if (!source.request(8)) break@outer
-                    source.readLong() - 16
-                }
-                sizeField < 8L -> break@outer // malformed box
-                else -> sizeField - 8
-            }
-
-            if (type == "udta") {
-                val comment = parseUdtaForComment(source, boxDataSize)
-                if (comment != null && comment.contains(RAY_BAN_DEVICE_PREFIX)) {
-                    return DetectionResult.Match(MATCH_DEVICE_NAME)
-                }
-                continue
-            }
-
-            // Skip box data
-            if (boxDataSize > 0) {
-                if (!source.request(boxDataSize)) break
-                source.skip(boxDataSize)
-            }
-        }
-        return DetectionResult.NoMatch
+        val comment = findCommentInBoxes(source, Long.MAX_VALUE) ?: return DetectionResult.NoMatch
+        if (!comment.contains(RAY_BAN_DEVICE_PREFIX)) return DetectionResult.NoMatch
+        return DetectionResult.Match(extractDeviceName(comment) ?: MATCH_DEVICE_NAME)
     }
 
-    private fun parseUdtaForComment(source: BufferedSource, udtaSize: Long): String? {
-        var remaining = udtaSize
+    private const val MAX_CMT_BYTES: Long = 64L * 1024L
+
+    /**
+     * Recursively walks MP4 boxes within a container of [containerSize] bytes (or
+     * [Long.MAX_VALUE] for the unbounded top-level), descending into `moov`, `udta`,
+     * `meta`, and `ilst`, and returning the text of the first `\u00a9cmt` atom found.
+     */
+    private fun findCommentInBoxes(source: BufferedSource, containerSize: Long): String? {
+        var remaining = containerSize
         while (remaining == Long.MAX_VALUE || remaining >= 8) {
-            if (!source.request(8)) break
-            // Read child box size as unsigned 32-bit
+            if (!source.request(8)) return null
             val sizeField = source.readInt().toLong() and 0xFFFFFFFFL
-            val type = source.readByteArray(4).decodeToString()
+            // Box types may contain byte 0xA9 (\u00a9), invalid as a lone UTF-8 byte.
+            // Decode as Latin-1 so byte value maps 1:1 to char, keeping "\u00a9cmt" matches correct.
+            val type = readLatin1(source, 4)
             if (remaining != Long.MAX_VALUE) remaining -= 8
 
-            // Validate and compute data size
-            if (sizeField == 0L || sizeField == 1L || sizeField < 8L) break // unsupported / malformed
-            val dataSize = sizeField - 8
-            if (remaining != Long.MAX_VALUE && dataSize > remaining) break // child exceeds parent
-
-            if (remaining != Long.MAX_VALUE) remaining -= dataSize
-
-            if (type == "\u00a9cmt") {
-                if (dataSize > 4) {
-                    if (!source.request(dataSize)) break
-                    val data = source.readByteArray(dataSize)
-                    // Skip the 4-byte iTunes-style language header if present
-                    return data.copyOfRange(4, data.size).decodeToString()
-                } else if (dataSize > 0) {
-                    if (!source.request(dataSize)) break
-                    return source.readByteArray(dataSize).decodeToString()
+            val dataSize: Long = when {
+                sizeField == 1L -> {
+                    // 64-bit extended-size box: next 8 bytes hold the full size including the
+                    // 16-byte header (4 size + 4 type + 8 extended size).
+                    if (!source.request(8)) return null
+                    val extSize = source.readLong()
+                    if (remaining != Long.MAX_VALUE) remaining -= 8
+                    if (extSize < 16L) return null
+                    extSize - 16L
                 }
-            } else if (dataSize > 0) {
-                if (!source.request(dataSize)) break
-                source.skip(dataSize)
+                sizeField == 0L -> {
+                    // Box extends to end of container (or EOF at the top level).
+                    if (remaining == Long.MAX_VALUE) Long.MAX_VALUE else remaining
+                }
+                sizeField < 8L -> return null
+                else -> sizeField - 8
             }
+            if (dataSize < 0) return null
+            if (remaining != Long.MAX_VALUE && dataSize != Long.MAX_VALUE && dataSize > remaining) return null
+
+            when (type) {
+                "moov", "udta", "ilst" -> {
+                    val found = findCommentInBoxes(source, dataSize)
+                    if (found != null) return found
+                }
+                "meta" -> {
+                    // `meta` is a FullBox (4-byte version/flags before children) in MP4, but a
+                    // plain container in QuickTime. Peek bytes [4..8) of the body: if they look
+                    // like a known child box type, the body starts directly with a box header;
+                    // otherwise consume the 4-byte version/flags first.
+                    var innerSize = dataSize
+                    if (!metaBodyStartsWithChildBox(source)) {
+                        if (!source.request(4)) return null
+                        source.skip(4)
+                        if (innerSize != Long.MAX_VALUE) innerSize -= 4
+                    }
+                    val found = findCommentInBoxes(source, innerSize)
+                    if (found != null) return found
+                }
+                "\u00a9cmt" -> {
+                    if (dataSize in 1..MAX_CMT_BYTES) {
+                        if (!source.request(dataSize)) return null
+                        val text = parseCmtPayload(source.readByteArray(dataSize))
+                        if (text != null) return text
+                    } else if (dataSize > 0 && dataSize != Long.MAX_VALUE) {
+                        if (!skipBytes(source, dataSize)) return null
+                    }
+                }
+                else -> {
+                    if (dataSize == Long.MAX_VALUE) return null
+                    if (dataSize > 0 && !skipBytes(source, dataSize)) return null
+                }
+            }
+            if (remaining != Long.MAX_VALUE && dataSize != Long.MAX_VALUE) remaining -= dataSize
         }
         return null
+    }
+
+    /** Reads [n] bytes and decodes as Latin-1, mapping each byte value directly to a char. */
+    private fun readLatin1(source: BufferedSource, n: Int): String {
+        val bytes = source.readByteArray(n.toLong())
+        return CharArray(n) { (bytes[it].toInt() and 0xFF).toChar() }.concatToString()
+    }
+
+    /**
+     * Peeks 8 bytes ahead and returns true when bytes [4..8) are the type of a known
+     * `meta` child box. Distinguishes FullBox `meta` from plain-container `meta`.
+     */
+    private fun metaBodyStartsWithChildBox(source: BufferedSource): Boolean {
+        val peek = source.peek()
+        if (!peek.request(8)) return false
+        peek.skip(4)
+        return readLatin1(peek, 4) in setOf("hdlr", "keys", "ilst")
+    }
+
+    private fun skipBytes(source: BufferedSource, n: Long): Boolean {
+        var left = n
+        while (left > 0) {
+            val chunk = minOf(left, 8192L)
+            if (!source.request(chunk)) return false
+            source.skip(chunk)
+            left -= chunk
+        }
+        return true
+    }
+
+    /**
+     * Decodes the payload of a `\u00a9cmt` atom. Handles two layouts:
+     *   - iTunes-style: `[4 size][4 "data"][4 type-indicator][4 locale][UTF-8 text]`
+     *   - QuickTime-style: `[2 text-len][2 lang-code][UTF-8 text]`
+     */
+    private fun parseCmtPayload(data: ByteArray): String? {
+        if (data.size >= 16 && data.copyOfRange(4, 8).decodeToString() == "data") {
+            return data.copyOfRange(16, data.size).decodeToString().trim('\u0000')
+        }
+        if (data.size > 4) {
+            return data.copyOfRange(4, data.size).decodeToString().trim('\u0000')
+        }
+        return null
+    }
+
+    /** Extracts the `device=...` value from a Ray-Ban Meta comment string, or null. */
+    private fun extractDeviceName(comment: String): String? {
+        val idx = comment.indexOf("device=")
+        if (idx < 0) return null
+        val start = idx + "device=".length
+        val end = comment.indexOf('&', start).let { if (it < 0) comment.length else it }
+        return comment.substring(start, end).trim().takeIf { it.isNotEmpty() }
     }
 }
