@@ -57,19 +57,19 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│              shared (commonMain — pure Kotlin)        │
-│  MetadataDetector  DetectionResult  MediaMoveRequest  │
-│  PreferencesRepository (expect)                       │
-└────────────────┬──────────────────────────────────────┘
+│             shared (commonMain — pure Kotlin)        │
+│ MetadataDetector  DetectionResult  MediaMoveRequest  │
+│ PreferencesRepository (expect)                       │
+└────────────────┬─────────────────────────────────────┘
                  │ androidMain (DataStore actual + AppContextHolder)
                  ▼
-┌──────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────┐
 │              androidApp                               │
-│  EXIFilerApp (initialises AppContextHolder)           │
-│  EXIFilerService ──► MediaMover ──► MediaScannerHelper│
-│  ServiceManager + BootReceiver                        │
-│  AppPreferencesManager   MainActivity (Compose UI)    │
-└──────────────────────────────────────────────────────┘
+│ EXIFilerApp (initialises AppContextHolder)            │
+│ EXIFilerService ──► MediaMover ──► MediaScannerHelper │
+│ ServiceManager + BootReceiver                         │
+│ AppPreferencesManager   MainActivity (Compose UI)     │
+└───────────────────────────────────────────────────────┘
 ```
 
 ### Module overview
