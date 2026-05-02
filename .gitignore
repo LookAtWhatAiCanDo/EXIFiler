@@ -12,3 +12,5 @@ local.properties
 .kotlin/
 
 *.keystore
+
+gradle/gradle-daemon-jvm.properties
