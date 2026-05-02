@@ -43,7 +43,11 @@ jobs:
           build-mode: manual
 
       - name: Build
-        run: ./gradlew :androidApp:assembleDebug --no-daemon --stacktrace
+        # --no-build-cache forces kotlinc to run fresh so CodeQL's Java
+        # extractor can intercept compiler invocations. Without this, Gradle
+        # restores compiled .class files from the cache and skips compilation
+        # entirely, leaving CodeQL with nothing to analyze.
+        run: ./gradlew :androidApp:assembleDebug --no-daemon --no-build-cache
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
