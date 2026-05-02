@@ -41,7 +41,7 @@ target iOS (KMP then Swift).
 | 3 | `expect PreferencesRepository` and every `actual` share the same constructor signature |
 | 4 | `BroadcastReceiver.onReceive` that launches coroutines calls `goAsync()` first |
 | 5 | `MetadataDetector` uses `source.request(n)` guards — never throws on corrupt files |
-| 6 | `processedUris` in `EXIFilerService` is bounded (LRU ≤ 500) and accessed under a `Mutex` |
+| 6 | `processedUris` in `MediaScanner` is bounded (LRU ≤ 500) and accessed under a `Mutex` |
 
 ---
 
@@ -50,8 +50,8 @@ target iOS (KMP then Swift).
 ### Adding a new file type
 1. Update `MetadataDetector.detect()` — add a new extension branch and a private `detectXxx()`.
 2. Update `MediaMover.guessMimeType()` with the new MIME type.
-3. Add the MIME type to `EXIFilerService.scanDownloads()` selection args.
-4. Add unit tests in `shared/src/commonTest/`.
+3. Add the MIME type to `MediaScanner.scanForProfile()` selection args.
+4. Add unit tests in `shared/src/jvmTest/`.
 
 ### Adding a new detected device
 Update the constants in `MetadataDetector`:
@@ -82,7 +82,7 @@ with `NSUserDefaults.standardUserDefaults` calls wrapped in a `@ObjCName` class.
 ## CI
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `build.yml` | push to main / PR | Build + test + upload APK artifact |
+| `build.yml` | push to main | Build + test + lint + upload APK artifact |
 | `pr-check.yml` | PR open/sync | Lint + build + test for every PR |
 
 ---
@@ -93,8 +93,8 @@ All versions are in `gradle/libs.versions.toml`. Do not add version strings dire
 
 | Dependency | Version |
 |------------|---------|
-| Kotlin | 2.0.21 |
-| AGP | 8.5.2 |
+| Kotlin | 2.2.10 |
+| AGP | 9.2.0 |
 | Compose BOM | 2024.09.03 |
 | okio | 3.9.0 |
 | DataStore | 1.1.1 |

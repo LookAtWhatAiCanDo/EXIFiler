@@ -20,16 +20,11 @@ class AppPreferencesManager(private val context: Context) {
 
     companion object {
         private const val TAG = "AppPreferencesManager"
-        private val TARGET_FOLDER_KEY = stringPreferencesKey("target_folder")
         private val SERVICE_ENABLED_KEY = booleanPreferencesKey("service_enabled")
         private val ACTIVITY_LOG_KEY = stringPreferencesKey("activity_log")
         private val PROFILES_KEY = stringPreferencesKey("monitoring_profiles")
-        const val DEFAULT_TARGET_FOLDER = "DCIM/EXIFiler"
-        const val MAX_LOG_ENTRIES = 10
+        const val MAX_LOG_ENTRIES = 100
     }
-
-    val targetFolderFlow: Flow<String> = context.dataStore.data
-        .map { it[TARGET_FOLDER_KEY] ?: DEFAULT_TARGET_FOLDER }
 
     val serviceEnabledFlow: Flow<Boolean> = context.dataStore.data
         .map { it[SERVICE_ENABLED_KEY] ?: false }
@@ -40,13 +35,6 @@ class AppPreferencesManager(private val context: Context) {
             if (raw.isBlank()) emptyList()
             else raw.split("\n").filter { it.isNotBlank() }
         }
-
-    suspend fun getTargetFolder(): String =
-        context.dataStore.data.first()[TARGET_FOLDER_KEY] ?: DEFAULT_TARGET_FOLDER
-
-    suspend fun setTargetFolder(path: String) {
-        context.dataStore.edit { it[TARGET_FOLDER_KEY] = path }
-    }
 
     suspend fun isServiceEnabled(): Boolean =
         context.dataStore.data.first()[SERVICE_ENABLED_KEY] ?: false
@@ -102,15 +90,16 @@ class AppPreferencesManager(private val context: Context) {
     /**
      * Inserts a default profile atomically if no profiles are stored yet.
      *
-     * When upgrading from the legacy single-folder preference model, preserve any existing
-     * [TARGET_FOLDER_KEY] value by migrating it into the seeded default profile's
+     * When upgrading from the legacy single-folder preference model, preserves any existing
+     * legacy target_folder value by migrating it into the seeded default profile's
      * [MonitoringProfile.outputFolder].
      */
     suspend fun ensureDefaultProfile() {
+        val legacyTargetFolderKey = stringPreferencesKey("target_folder")
         context.dataStore.edit { prefs ->
             val current = deserializeProfiles(prefs[PROFILES_KEY] ?: "[]")
             if (current.isEmpty()) {
-                val legacyTargetFolder = prefs[TARGET_FOLDER_KEY]?.trim()?.takeIf { it.isNotEmpty() }
+                val legacyTargetFolder = prefs[legacyTargetFolderKey]?.trim()?.takeIf { it.isNotEmpty() }
                 val defaultProfile = legacyTargetFolder?.let {
                     MonitoringProfile.DEFAULT.copy(outputFolder = it)
                 } ?: MonitoringProfile.DEFAULT

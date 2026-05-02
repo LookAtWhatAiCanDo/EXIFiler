@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Exclude DataStore preferences from cloud backup and device-to-device transfer.
+  Restoring service-enabled state or stale profiles from a different device could
+  silently start the service or apply wrong folder mappings.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/"/>
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/"/>
+    </device-transfer>
+</data-extraction-rules>

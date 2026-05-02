@@ -40,7 +40,7 @@ data class MonitoringProfile(
             id = "default",
             name = "Meta AI Glasses",
             inputFolder = "Download",
-            filePatterns = listOf("jpg", "jpeg", "mp4"),
+            filePatterns = listOf("jpg", "jpeg", "mp4", "mov"),
             exifFilters = mapOf("Make" to "Meta"),
             outputFolder = "DCIM/EXIFiler",
             isEnabled = true,

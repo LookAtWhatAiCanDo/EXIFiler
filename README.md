@@ -10,7 +10,7 @@ It was originally intended to solve the problem of the **Meta AI App** importing
 - **Automatic detection** — identifies Meta AI Glasses files by inspecting EXIF metadata (JPEG) and MP4 box atoms (MP4/MOV), not just filenames.
 - **Background service** — runs as a foreground service with a persistent notification; survives device reboots.
 - **Configurable destination** — pick any folder on internal storage via the system folder picker.
-- **Activity log** — in-app scrollable log showing the 10 most recent file operations.
+- **Activity log** — in-app scrollable log showing the 100 most recent file operations.
 - **Scoped storage** — all file I/O uses `ContentResolver`/`MediaStore`; no raw filesystem paths.
 
 ---
@@ -19,17 +19,23 @@ It was originally intended to solve the problem of the **Meta AI App** importing
 
 ### Detection logic
 
-| Format | Metadata field | Match condition |
-|--------|---------------|----------------|
-| JPEG / JPG | EXIF IFD0 Make tag (`0x010F`) | equals `"Meta"` (case-insensitive, null-trimmed) |
-| MP4 / MOV | `udta/©cmt` box content | contains `"device=Ray-Ban Meta Smart Glasses"` |
+Detection is profile-driven. Each `MonitoringProfile` defines an `exifFilters` map of
+EXIF key/value pairs that must all match. The default profile targets Meta AI Glasses:
+
+| Format | Metadata field | Default match condition |
+|--------|---------------|------------------------|
+| JPEG / JPG | EXIF IFD0 string tag (Make, Model, Software, Artist, or Copyright) | all `exifFilters` entries must match (case-insensitive) |
+| MP4 / MOV | `udta/©cmt` box content | `Make=Meta` maps to the Ray-Ban `device=` atom check |
+
+An empty `exifFilters` map matches **all** files of the supported types — useful for
+profiles that move everything in a folder regardless of metadata.
 
 The detector is implemented in pure Kotlin in the `shared` module (`MetadataDetector.kt`) with no platform dependencies, making it fully portable.
 
 ### Service flow
 
 1. `EXIFilerService` starts as a foreground service and registers `ContentObserver` instances on **three** `MediaStore` collections — `Downloads`, `Images`, and `Video` — because some devices index Download-folder media under `Images`/`Video` rather than `Downloads`.
-2. On each change notification, `scanDownloads()` queries all three collections for JPEG/MP4 candidates in the `Download/` relative path.
+2. On each change notification, `MediaScanner.scan()` queries all three collections for candidates matching each active profile's input folder and file patterns.
 3. Each candidate URI is checked against an in-memory LRU cache (`processedUris`, max 500 entries) so already-processed files are skipped.
 4. For new files, `MetadataDetector.detect()` reads the file bytes through a buffered `okio` stream and returns one of:
    - `DetectionResult.Match(deviceName)` — file is from a Meta AI Glasses device
@@ -51,19 +57,19 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│              shared (commonMain — pure Kotlin)        │
-│  MetadataDetector  DetectionResult  MediaMoveRequest  │
-│  PreferencesRepository (expect)                       │
-└────────────────┬──────────────────────────────────────┘
+│             shared (commonMain — pure Kotlin)        │
+│ MetadataDetector  DetectionResult  MediaMoveRequest  │
+│ PreferencesRepository (expect)                       │
+└────────────────┬─────────────────────────────────────┘
                  │ androidMain (DataStore actual + AppContextHolder)
                  ▼
-┌──────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────┐
 │              androidApp                               │
-│  EXIFilerApp (initialises AppContextHolder)           │
-│  EXIFilerService ──► MediaMover ──► MediaScannerHelper│
-│  ServiceManager + BootReceiver                        │
-│  AppPreferencesManager   MainActivity (Compose UI)    │
-└──────────────────────────────────────────────────────┘
+│ EXIFilerApp (initialises AppContextHolder)            │
+│ EXIFilerService ──► MediaMover ──► MediaScannerHelper │
+│ ServiceManager + BootReceiver                         │
+│ AppPreferencesManager   MainActivity (Compose UI)     │
+└───────────────────────────────────────────────────────┘
 ```
 
 ### Module overview
@@ -108,14 +114,12 @@ The detector is implemented in pure Kotlin in the `shared` module (`MetadataDete
 
 Output APK: `androidApp/build/outputs/apk/debug/`
 
-> **Note:** No unit tests have been written yet. The `./gradlew test` task succeeds but runs nothing.
-
 ### Key versions
 
 | Dependency | Version |
 |------------|---------|
-| Kotlin | 2.0.21 |
-| Android Gradle Plugin | 8.5.2 |
+| Kotlin | 2.2.10 |
+| Android Gradle Plugin | 9.2.0 |
 | Compose BOM | 2024.09.03 |
 | Coroutines | 1.8.1 |
 | DataStore | 1.1.1 |
@@ -129,7 +133,7 @@ All versions are managed in `gradle/libs.versions.toml`.
 
 | Workflow | Trigger | Jobs |
 |----------|---------|------|
-| `build.yml` | Push to `main` / PR | Build shared module → Build Android app → Run tests → Upload APK artifact (on push) |
+| `build.yml` | Push to `main` | Build shared module → Build Android app → Run tests → Lint → Upload APK artifact |
 | `pr-check.yml` | PR open / sync | **lint** (Android Lint) and **build-and-test** (assembleDebug + test) run in parallel |
 | `release.yml` | Push of `v*` semver tag / manual dispatch | Build signed release APK + AAB → create GitHub Release with artefacts |
 
@@ -163,15 +167,8 @@ All versions are managed in `gradle/libs.versions.toml`.
 
 ## TODO
 
-* Add ability to clear all Recent Activity
-* Add ability to clear specific Recent Activity
-* Add ability to define separate:
-  * input folder to monitor
-  * file spec(s) to match
-  * EXIF metadata value(s) to match
-  * output folder
-* Change Service Running description to be more generic and not say "Monitor Downloads for Meta AI Glasses files"
-* Add pre-defined input/filename/EXIF/output setting presets
-  * e.g. "Meta AI Glasses Download → DCIM/Meta AI"
-* Add unit tests for `MetadataDetector` (JPEG EXIF parsing and MP4 box parsing)
-
+* Add JPEG unit tests for `MetadataDetector` (synthetic EXIF byte array coverage)
+* Add folder suggestion shortcuts in the profile editor
+* Add permission denial feedback (banner when READ_MEDIA_IMAGES/VIDEO is denied)
+* Migrate activity log storage from newline-delimited string to JSON array
+* Add adb hack for truly persistent scanning icon

@@ -1,8 +1,6 @@
 package com.exifiler.android
 
 import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -45,7 +43,7 @@ class EXIFilerService : Service() {
     override fun onCreate() {
         super.onCreate()
         preferencesManager = AppPreferencesManager(applicationContext)
-        createNotificationChannel()
+        MediaScanner.ensureNotificationChannel(this)
         startForeground(NOTIFICATION_ID, buildNotification())
         registerDownloadsObserver()
         Log.i(TAG, "EXIFilerService started")
@@ -72,15 +70,6 @@ class EXIFilerService : Service() {
         serviceScope.cancel()
         Log.i(TAG, "EXIFilerService stopped")
         super.onDestroy()
-    }
-
-    private fun createNotificationChannel() {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW).apply {
-                description = "EXIFiler background service notifications"
-            }
-        )
     }
 
     private fun buildNotification(): Notification {
@@ -116,13 +105,13 @@ class EXIFilerService : Service() {
         observedUris.forEach { collectionUri ->
             val observer = object : ContentObserver(handler) {
                 override fun onChange(selfChange: Boolean, uri: Uri?) {
-                    serviceScope.launch { MediaScanner.scan(applicationContext) }
+                    serviceScope.launch { MediaScanner.scan(applicationContext, preferencesManager) }
                 }
             }
             contentResolver.registerContentObserver(collectionUri, true, observer)
             contentObservers.add(observer)
         }
         // Initial scan when the service starts.
-        serviceScope.launch { MediaScanner.scan(applicationContext) }
+        serviceScope.launch { MediaScanner.scan(applicationContext, preferencesManager) }
     }
 }

@@ -14,8 +14,8 @@ android {
         applicationId = "com.exifiler.android"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.0.0.1"
+        versionCode = 2
+        versionName = "0.0.2"
     }
 
     // Release signing — credentials are supplied via environment variables set by CI.
@@ -40,7 +40,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             if (hasSigningVars) {
                 signingConfig = signingConfigs.getByName("release")
             }
