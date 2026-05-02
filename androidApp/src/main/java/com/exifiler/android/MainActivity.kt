@@ -125,6 +125,11 @@ class MainViewModel(application: android.app.Application) : AndroidViewModel(app
         }
     }
 
+    /** Runs a one-shot scan that does NOT start or stop the foreground service. */
+    fun scanNow(context: Context) {
+        ServiceManager.requestScan(context, viewModelScope)
+    }
+
     fun enterMultiSelectMode(entry: String) {
         _selectedEntries.value = setOf(entry)
         _multiSelectActive.value = true
@@ -218,7 +223,7 @@ class MainActivity : ComponentActivity() {
         // If MANAGE_MEDIA was just granted, trigger an immediate rescan so the service retries
         // pending source deletions without waiting for the next ContentObserver notification.
         if (hadPermissionMissing && !viewModel.needsManageMedia.value) {
-            ServiceManager.requestScan(this)
+            viewModel.scanNow(this)
         }
     }
 
@@ -369,30 +374,37 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = if (serviceEnabled) stringResource(R.string.service_running)
-                                else stringResource(R.string.service_stopped),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = stringResource(R.string.service_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = if (serviceEnabled) stringResource(R.string.service_running)
+                                    else stringResource(R.string.service_stopped),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = stringResource(R.string.service_subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                            Switch(
+                                checked = serviceEnabled,
+                                onCheckedChange = { viewModel.setServiceEnabled(context, it) }
                             )
                         }
-                        Switch(
-                            checked = serviceEnabled,
-                            onCheckedChange = { viewModel.setServiceEnabled(context, it) }
-                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.scanNow(context) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.scan_now))
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))

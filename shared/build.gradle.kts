@@ -11,6 +11,7 @@ kotlin {
             }
         }
     }
+    jvm()
     iosX64()
     iosArm64()
     iosSimulatorArm64()
@@ -23,6 +24,12 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.datastore.preferences)
             implementation(libs.coroutines.android)
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation(libs.kotlin.test)
+                implementation(libs.okio)
+            }
         }
     }
 }

@@ -16,14 +16,13 @@ object MediaMover {
     /**
      * Moves a file from its current URI to the target folder using MediaStore scoped storage APIs.
      *
-     * Deletion of the source file requires one of:
-     *  - API 29: `requestLegacyExternalStorage` flag in the manifest (declared).
-     *  - API 31+: `MANAGE_MEDIA` permission granted by the user in Settings (one-time).
-     *
-     * On API 30 (the only version where neither mechanism applies automatically), deletion of
-     * files not owned by this app will fail with [RecoverableSecurityException]. The caller
-     * ([EXIFilerService]) collects such URIs and issues a single [MediaStore.createDeleteRequest]
-     * batch at the end of each scan — one system dialog covers all files, not one per file.
+     * Deletion of the source file after copying:
+     *  - **API 29**: direct `ContentResolver.delete()` works via `requestLegacyExternalStorage`.
+     *  - **API 30+**: direct delete **always fails** for files not owned by this app, regardless
+     *    of whether `MANAGE_MEDIA` is granted. `MANAGE_MEDIA` only suppresses the confirmation
+     *    dialog shown by `createDeleteRequest()` — it does not enable direct deletion.
+     *    This method returns [MoveResult.CopiedDeletePending] so the caller can batch the URI
+     *    into a [MediaStore.createDeleteRequest] PendingIntent.
      *
      * @return A [MoveResult] indicating success/failure and whether the source delete succeeded.
      */
@@ -72,7 +71,13 @@ object MediaMover {
             )?.use { it.moveToFirst() } == true
 
             if (alreadyExists) {
-                Log.i(TAG, "Destination already contains $filename — skipping copy, attempting source delete")
+                Log.i(TAG, "Destination already contains $filename — skipping copy, queuing source delete")
+                // On API 30+, direct delete always fails for non-owned files regardless of
+                // MANAGE_MEDIA status. Return CopiedDeletePending so EXIFilerService batches
+                // the URI into a createDeleteRequest().
+                if (!canDirectDelete()) {
+                    return MoveResult.CopiedDeletePending(sourceUri)
+                }
                 return try {
                     val deleted = contentResolver.delete(sourceUri, null, null)
                     if (deleted > 0) MoveResult.Success else MoveResult.CopiedDeletePending(sourceUri)
@@ -109,9 +114,13 @@ object MediaMover {
             // Notify media scanner of new file
             MediaScannerHelper.scan(context, destUri)
 
-            // Delete source — requires MANAGE_MEDIA (API 31+) or requestLegacyExternalStorage
-            // (API 29).  On API 30 the system throws RecoverableSecurityException for files not
-            // owned by this app; the caller must handle those with a batch createDeleteRequest.
+            // Delete source — on API 29 requestLegacyExternalStorage grants access.
+            // On API 30+, direct delete always fails for non-owned files (even with MANAGE_MEDIA);
+            // return CopiedDeletePending so the caller uses createDeleteRequest().
+            if (!canDirectDelete()) {
+                Log.d(TAG, "Queuing $filename for createDeleteRequest (API 30+: direct delete not permitted for non-owned files)")
+                return MoveResult.CopiedDeletePending(sourceUri)
+            }
             try {
                 val deleted = contentResolver.delete(sourceUri, null, null)
                 if (deleted == 0) {
@@ -147,22 +156,16 @@ object MediaMover {
     }
 
     /**
-     * On API 30 (Android 11), `MANAGE_MEDIA` doesn't exist yet, so we batch all pending source
-     * URIs into a single [MediaStore.createDeleteRequest] and launch it from a notification that
-     * the user taps **once** — not once per file.
+     * Returns true when direct [android.content.ContentResolver.delete] can succeed for
+     * files not owned by this app, without throwing [android.app.RecoverableSecurityException].
      *
-     * On API 31+ this method should never be needed because MANAGE_MEDIA allows silent deletion.
-     * It is provided as a safety net only.
+     * Only API 29 (`requestLegacyExternalStorage`) qualifies. On API 30+, even with
+     * `MANAGE_MEDIA` granted, direct `ContentResolver.delete()` always fails for non-owned
+     * files — `MANAGE_MEDIA` only suppresses the confirmation dialog in `createDeleteRequest()`,
+     * it does not enable direct deletion. The caller must use [MediaStore.createDeleteRequest]
+     * on API 30+.
      */
-    @Suppress("unused")
-    fun canManageMediaSilently(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaStore.canManageMedia(context)
-        } else {
-            // API 29 relies on requestLegacyExternalStorage; API 30 cannot do it silently.
-            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
-        }
-    }
+    private fun canDirectDelete(): Boolean = Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q
 
     private fun guessMimeType(filename: String): String {
         val lower = filename.lowercase()
