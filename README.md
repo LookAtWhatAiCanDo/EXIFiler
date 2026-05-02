@@ -171,5 +171,4 @@ All versions are managed in `gradle/libs.versions.toml`.
 * Add folder suggestion shortcuts in the profile editor
 * Add permission denial feedback (banner when READ_MEDIA_IMAGES/VIDEO is denied)
 * Migrate activity log storage from newline-delimited string to JSON array
-* Bump stale dependency versions (Compose BOM, coroutines, activity-compose, etc.)
-
+* Add adb hack for truly persistent scanning icon
