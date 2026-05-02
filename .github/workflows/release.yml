@@ -58,7 +58,7 @@ jobs:
             echo "::error::RELEASE_KEYSTORE_BASE64 secret is not set"
             exit 1
           fi
-          echo "$KEYSTORE_B64" | base64 --decode > "${{ runner.temp }}/release.keystore"
+          echo "$KEYSTORE_B64" | tr -d '[:space:]' | base64 --decode > "${{ runner.temp }}/release.keystore"
           if [ ! -s "${{ runner.temp }}/release.keystore" ]; then
             echo "::error::Decoded keystore file is empty — check RELEASE_KEYSTORE_BASE64"
             exit 1
