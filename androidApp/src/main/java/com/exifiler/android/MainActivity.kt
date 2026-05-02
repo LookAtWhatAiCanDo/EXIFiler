@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -260,7 +261,11 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     val selectedEntries by viewModel.selectedEntries.collectAsState()
 
     // Track the actual rendered height of the action bar so the list never scrolls behind it.
-    var multiSelectBarHeightPx by remember { mutableIntStateOf(0) }
+    // rememberSaveable intentionally preserves the last-known height across config changes so
+    // the list keeps non-zero bottom padding immediately after rotation, before onSizeChanged
+    // fires with the updated measurement. A briefly-stale value is far better than 0 (which
+    // would let the list scroll behind the bar until the next layout pass).
+    var multiSelectBarHeightPx by rememberSaveable { mutableIntStateOf(0) }
     val multiSelectBarHeightDp = with(LocalDensity.current) { multiSelectBarHeightPx.toDp() }
 
     // Auto-exit multi-select if the log becomes empty (e.g. after deleting all entries)
