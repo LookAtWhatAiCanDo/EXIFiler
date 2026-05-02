@@ -7,6 +7,7 @@
     <string name="target_folder">Target Folder</string>
     <string name="change_folder">Change Folder</string>
     <string name="recent_activity">Recent Activity</string>
+    <string name="recent_activity_count">Recent Activity (%1$d/%2$d)</string>
     <string name="no_activity">No files moved yet</string>
     <string name="notification_channel_name">EXIFiler Service</string>
     <string name="notification_title">EXIFiler Active</string>
@@ -14,8 +15,8 @@
     <string name="notification_quit_action">Quit</string>
 
     <!-- Permissions -->
-    <string name="permission_media_required">Media Management permission required</string>
-    <string name="permission_media_explanation">Grant once in Settings so EXIFiler can silently move files without prompting you for every transfer.</string>
+    <string name="permission_media_required">Recommended: Media Management permission</string>
+    <string name="permission_media_explanation">Allows EXIFiler to silently remove originals from Downloads after copying. Without it, you\'ll tap a confirmation each time.</string>
     <string name="grant_in_settings">Grant in Settings</string>
 
     <!-- Monitoring Profiles -->
@@ -33,11 +34,12 @@
     <string name="profile_field_input">Input folder (e.g. Download)</string>
     <string name="profile_field_patterns">File types (e.g. jpg, jpeg, mp4)</string>
     <string name="profile_field_filters">EXIF filters (e.g. Make=Meta)</string>
+    <string name="profile_field_filters_hint">Supported keys: Make, Model, Software, Artist, Copyright</string>
     <string name="profile_field_output">Output folder (e.g. DCIM/EXIFiler)</string>
 
     <!-- Profile default values (MediaStore paths / technical values — must NOT be translated) -->
     <string name="profile_default_input_folder" translatable="false">Download</string>
-    <string name="profile_default_file_patterns" translatable="false">jpg, jpeg, mp4</string>
+    <string name="profile_default_file_patterns" translatable="false">jpg, jpeg, mp4, mov</string>
     <string name="profile_default_exif_filters" translatable="false">Make=Meta</string>
     <string name="profile_default_output_folder" translatable="false">DCIM/EXIFiler</string>
 

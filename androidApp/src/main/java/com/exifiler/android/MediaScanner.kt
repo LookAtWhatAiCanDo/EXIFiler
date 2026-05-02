@@ -60,11 +60,10 @@ object MediaScanner {
         val pendingSourceUri: Uri?,
     )
 
-    suspend fun scan(context: Context) = scanMutex.withLock {
+    suspend fun scan(context: Context, preferencesManager: AppPreferencesManager) = scanMutex.withLock {
         Log.d(TAG, "+scan()")
         val appContext = context.applicationContext
         val contentResolver = appContext.contentResolver
-        val preferencesManager = AppPreferencesManager(appContext)
 
         // Pre-scan: on API 29 only, attempt direct deletes for URIs queued from previous scans.
         // (requestLegacyExternalStorage makes direct delete work for app-accessible files on API 29.)
@@ -340,7 +339,7 @@ object MediaScanner {
     }
 
     /** Idempotent: createNotificationChannel ignores duplicates. */
-    private fun ensureNotificationChannel(context: Context) {
+    fun ensureNotificationChannel(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
             NotificationChannel(

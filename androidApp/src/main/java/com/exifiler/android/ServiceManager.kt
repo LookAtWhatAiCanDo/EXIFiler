@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 object ServiceManager {
@@ -30,7 +31,9 @@ object ServiceManager {
      * is enabled, and tapping it must not turn monitoring back on.
      */
     fun requestScan(context: Context, scope: CoroutineScope) {
-        scope.launch { MediaScanner.scan(context.applicationContext) }
+        val appContext = context.applicationContext
+        val prefsManager = AppPreferencesManager(appContext)
+        scope.launch { MediaScanner.scan(appContext, prefsManager) }
         Log.i(TAG, "MediaScanner.scan dispatched")
     }
 
@@ -44,7 +47,8 @@ object ServiceManager {
                 // coroutine can safely read DataStore before calling startService.
                 val pendingResult = goAsync()
                 val prefsManager = AppPreferencesManager(context)
-                CoroutineScope(Dispatchers.IO).launch {
+                val scope = CoroutineScope(Dispatchers.IO)
+                scope.launch {
                     try {
                         val enabled = prefsManager.isServiceEnabled()
                         if (enabled) {
@@ -53,6 +57,7 @@ object ServiceManager {
                         }
                     } finally {
                         pendingResult.finish()
+                        scope.cancel()
                     }
                 }
             }

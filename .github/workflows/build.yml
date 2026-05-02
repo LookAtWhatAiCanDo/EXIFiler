@@ -3,8 +3,6 @@ name: Build
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 concurrency:
@@ -54,6 +52,9 @@ jobs:
 
       - name: Run unit tests
         run: ./gradlew test --no-daemon --continue
+
+      - name: Run lint
+        run: ./gradlew :androidApp:lintDebug --no-daemon
 
       - name: Upload APK artifact
         if: github.event_name == 'push'

@@ -5,7 +5,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 
@@ -38,12 +37,7 @@ object MediaMover {
             // Determine MIME type
             val mimeType = contentResolver.getType(sourceUri) ?: guessMimeType(filename)
 
-            // Build destination ContentValues
-            val relativeFolder = if (targetFolder.startsWith("DCIM")) {
-                "${Environment.DIRECTORY_DCIM}/${targetFolder.removePrefix("DCIM/")}"
-            } else {
-                targetFolder
-            }
+            val relativeFolder = targetFolder.trimStart('/').trimEnd('/')
 
             val destValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, filename)

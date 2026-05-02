@@ -17,7 +17,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,7 +53,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -258,9 +260,7 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
     val selectedEntries by viewModel.selectedEntries.collectAsState()
 
     // Track the actual rendered height of the action bar so the list never scrolls behind it.
-    // rememberSaveable preserves the last-known height across config changes (e.g. rotation)
-    // so the list keeps the correct padding until onSizeChanged fires with the new measurement.
-    var multiSelectBarHeightPx by rememberSaveable { mutableIntStateOf(0) }
+    var multiSelectBarHeightPx by remember { mutableIntStateOf(0) }
     val multiSelectBarHeightDp = with(LocalDensity.current) { multiSelectBarHeightPx.toDp() }
 
     // Auto-exit multi-select if the log becomes empty (e.g. after deleting all entries)
@@ -458,7 +458,12 @@ fun EXIFilerScreen(viewModel: MainViewModel) {
             // ── Activity log ───────────────────────────────────────────────────────────────────────
             item {
                 Text(
-                    text = stringResource(R.string.recent_activity),
+                    text = if (activityLog.isEmpty()) stringResource(R.string.recent_activity)
+                    else stringResource(
+                        R.string.recent_activity_count,
+                        activityLog.size,
+                        AppPreferencesManager.MAX_LOG_ENTRIES
+                    ),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -546,8 +551,11 @@ fun ProfileCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    var expanded by remember(profile.id) { mutableStateOf(false) }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (profile.isEnabled) MaterialTheme.colorScheme.surface
@@ -568,43 +576,47 @@ fun ProfileCard(
                 )
                 Switch(checked = profile.isEnabled, onCheckedChange = { onToggle() })
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.profile_input_label, profile.inputFolder),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
-            Text(
-                text = stringResource(R.string.profile_output_label, profile.outputFolder),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
-            if (profile.filePatterns.isNotEmpty()) {
-                Text(
-                    text = stringResource(
-                        R.string.profile_patterns_label,
-                        profile.filePatterns.joinToString(", ")
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
-            if (profile.exifFilters.isNotEmpty()) {
-                val filtersText = profile.exifFilters.entries.joinToString(", ") { "${it.key}=${it.value}" }
-                Text(
-                    text = stringResource(R.string.profile_filters_label, filtersText),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onEdit) { Text(stringResource(R.string.edit)) }
-                TextButton(onClick = onDelete) {
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = stringResource(R.string.delete),
-                        color = MaterialTheme.colorScheme.error
+                        text = stringResource(R.string.profile_input_label, profile.inputFolder),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
+                    Text(
+                        text = stringResource(R.string.profile_output_label, profile.outputFolder),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                    if (profile.filePatterns.isNotEmpty()) {
+                        Text(
+                            text = stringResource(
+                                R.string.profile_patterns_label,
+                                profile.filePatterns.joinToString(", ")
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                    if (profile.exifFilters.isNotEmpty()) {
+                        val filtersText = profile.exifFilters.entries.joinToString(", ") { "${it.key}=${it.value}" }
+                        Text(
+                            text = stringResource(R.string.profile_filters_label, filtersText),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onEdit) { Text(stringResource(R.string.edit)) }
+                        TextButton(onClick = onDelete) {
+                            Text(
+                                text = stringResource(R.string.delete),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -624,18 +636,19 @@ fun ProfileEditorDialog(
     val defaultExifFilters = stringResource(R.string.profile_default_exif_filters)
     val defaultOutputFolder = stringResource(R.string.profile_default_output_folder)
 
-    var name by remember { mutableStateOf(initial?.name ?: "") }
-    var inputFolder by remember { mutableStateOf(initial?.inputFolder ?: defaultInputFolder) }
-    var filePatterns by remember {
+    val key = initial?.id
+    var name by remember(key) { mutableStateOf(initial?.name ?: "") }
+    var inputFolder by remember(key) { mutableStateOf(initial?.inputFolder ?: defaultInputFolder) }
+    var filePatterns by remember(key) {
         mutableStateOf(initial?.filePatterns?.joinToString(", ") ?: defaultFilePatterns)
     }
-    var exifFilters by remember {
+    var exifFilters by remember(key) {
         mutableStateOf(
             initial?.exifFilters?.entries?.joinToString(", ") { "${it.key}=${it.value}" }
                 ?: defaultExifFilters
         )
     }
-    var outputFolder by remember { mutableStateOf(initial?.outputFolder ?: defaultOutputFolder) }
+    var outputFolder by remember(key) { mutableStateOf(initial?.outputFolder ?: defaultOutputFolder) }
 
     // Validation
     val nameError = name.isBlank()
@@ -651,7 +664,10 @@ fun ProfileEditorDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -679,6 +695,7 @@ fun ProfileEditorDialog(
                     value = exifFilters,
                     onValueChange = { exifFilters = it },
                     label = { Text(stringResource(R.string.profile_field_filters)) },
+                    supportingText = { Text(stringResource(R.string.profile_field_filters_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
