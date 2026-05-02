@@ -1,8 +1,11 @@
 package com.exifiler
 
 actual class PreferencesRepository actual constructor() {
-    actual suspend fun getTargetFolder(): String = TODO("JVM stub")
-    actual suspend fun setTargetFolder(path: String): Unit = TODO("JVM stub")
-    actual suspend fun isServiceEnabled(): Boolean = TODO("JVM stub")
-    actual suspend fun setServiceEnabled(enabled: Boolean): Unit = TODO("JVM stub")
+    private var targetFolder: String = "DCIM/EXIFiler"
+    private var serviceEnabled: Boolean = false
+
+    actual suspend fun getTargetFolder(): String = targetFolder
+    actual suspend fun setTargetFolder(path: String) { targetFolder = path }
+    actual suspend fun isServiceEnabled(): Boolean = serviceEnabled
+    actual suspend fun setServiceEnabled(enabled: Boolean) { serviceEnabled = enabled }
 }

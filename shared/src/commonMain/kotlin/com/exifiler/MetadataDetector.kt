@@ -200,7 +200,19 @@ object MetadataDetector {
             if (remaining != Long.MAX_VALUE) remaining -= 8
 
             val dataSize: Long = when {
-                sizeField == 0L || sizeField == 1L -> return null
+                sizeField == 1L -> {
+                    // 64-bit extended-size box: next 8 bytes hold the full size including the
+                    // 16-byte header (4 size + 4 type + 8 extended size).
+                    if (!source.request(8)) return null
+                    val extSize = source.readLong()
+                    if (remaining != Long.MAX_VALUE) remaining -= 8
+                    if (extSize < 16L) return null
+                    extSize - 16L
+                }
+                sizeField == 0L -> {
+                    // Box extends to end of container (or EOF at the top level).
+                    if (remaining == Long.MAX_VALUE) Long.MAX_VALUE else remaining
+                }
                 sizeField < 8L -> return null
                 else -> sizeField - 8
             }

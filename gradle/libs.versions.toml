@@ -24,7 +24,7 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 okio = { group = "com.squareup.okio", name = "okio", version.ref = "okio" }
-kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test" }
+kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
